@@ -6,6 +6,7 @@ from langchain.agents.tools import Tool
 from langchain import OpenAI
 from langchain.agents import initialize_agent
 from langchain.prompts import PromptTemplate
+from langchain_core.messages import HumanMessage
 from langchain.chains import LLMChain
 # Streamlit UI Callback
 from langchain.callbacks import StreamlitCallbackHandler
@@ -34,10 +35,6 @@ st.write(
 )
 
 
-# Get the user's question input
-question = st.chat_input("Ask")
-
-
 # Get the API key from the secrets manager
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
@@ -55,32 +52,21 @@ if "memory" not in st.session_state:
     st.session_state.memory = ConversationBufferMemory(memory_key="chat_history")
 
 
-# Set up the tool for responding to general questions
-
-
-# Initialize the Zero-shot agent with the tools and language model
-conversational_agent = initialize_agent(
-    agent="conversational-react-description",
-    tools=app_interactor.tools,
-    llm=app_interactor.llm,
-    verbose=True,
-    max_iterations=10,
-    memory = st.session_state.memory
-)
-
 # Display previous chat messages from history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 # Process the user's question and generate a response
-if question:
+if st.button("Approve the Scanning of the environment and install the Akeyless Gateway"):
     # Display the user's question in the chat message container
+    human_message = HumanMessage(content="Please check what the kubernetes namespace and service account are for this bot to deploy the akeyless gateway helm chart. Please make sure the bot has permission to deploy the helm chart into this namespace. Please figure out the cloud service provider where this bot is installed and create the appropriate authentication method. Please deploy the helm chart using the authentication method access ID. Once the helm chart is deployed, please return all the details about everything created.")
+    
     with st.chat_message("user"):
-        st.markdown(question)
+        st.markdown(human_message.content)
 
     # Add the user's question to the chat history
-    st.session_state.messages.append({"role": "user", "content": question})
+    st.session_state.messages.append(human_message)
 
     # Generate the assistant's response
     with st.chat_message("assistant"):
@@ -89,8 +75,10 @@ if question:
         message_placeholder = st.empty()
         full_response = ""
         # assistant_response = conversational_agent.run(question, callbacks=[st_callback])
-        
-        assistant_response = app_interactor.app.with_config({"run_name": "Heimdal with Tools and UI"}).stream(question, callbacks=[st_callback])
+        inputs = {
+            "messages": st.session_state.messages
+        }
+        assistant_response = app_interactor.app.with_config({"run_name": "Heimdal with Tools and UI"}).stream(inputs, callbacks=[st_callback])
         
         # Simulate a streaming response with a slight delay
         for chunk in assistant_response.split():
@@ -105,4 +93,3 @@ if question:
 
     # Add the assistant's response to the chat history
     st.session_state.messages.append({"role": "assistant", "content": full_response})
-# Written at
