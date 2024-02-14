@@ -44,8 +44,6 @@ os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
 os.environ["LANGCHAIN_PROJECT"] = "Demos"
 
-# Initialize OpenWeatherMap
-# os.environ["AKEYLESS_TOKEN"] = os.getenv("AKEYLESS_TOKEN")
 
 # Define the tools
 
@@ -372,7 +370,7 @@ prompt = ChatPromptTemplate.from_messages(
 )
 
 # Create the OpenAI LLM
-llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, streaming=True)
+llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, streaming=True, callbacks=[stream_handler])
 
 # demo_ephemeral_chat_history_for_chain = ChatMessageHistory()
 
@@ -466,18 +464,8 @@ graph.add_edge("action", "agent")
 
 # memory = SqliteSaver.from_conn_string(":memory:")
 
-# Compile the workflow
 app = graph.compile()
 
-
-class AppInteractor:
-    def __init__(self, app, llm, tools):
-        self.app = app
-        self.llm = llm
-        self.tools = tools
-
-
-app_interactor = AppInteractor(app, llm, tools)
 
 # inputs = {
 #     "messages": [
