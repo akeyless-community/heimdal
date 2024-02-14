@@ -45,8 +45,7 @@ os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
 os.environ["LANGCHAIN_PROJECT"] = "Demos"
 
 # Initialize OpenWeatherMap
-OPENWEATHERMAP_API_KEY = os.getenv("OPENWEATHERMAP_API_KEY")
-os.environ["AKEYLESS_TOKEN"] = os.getenv("AKEYLESS_TOKEN")
+# os.environ["AKEYLESS_TOKEN"] = os.getenv("AKEYLESS_TOKEN")
 
 # Define the tools
 
