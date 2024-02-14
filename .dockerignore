@@ -1,0 +1,5 @@
+# Exclude .env files
+.env
+
+# Exclude secrets.toml file
+secrets.toml
