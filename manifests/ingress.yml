@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: heimdal-ingress
+  namespace: python
+  annotations:
+    cert-manager.io/issuer: "letsencrypt-prod" # Reference to the local Issuer
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - heimdal.cg.cs.akeyless.fans # Replace with your domain
+      secretName: heimdal-tls # Secret that will be created with the TLS cert
+  rules:
+    - host: heimdal.cg.cs.akeyless.fans # Replace with your domain
+      http:
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: heimdal-service
+                port:
+                  number: 80

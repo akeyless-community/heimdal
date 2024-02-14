@@ -282,7 +282,8 @@ async def handle_click_async():
             target_namespace,
             {"akeylessUserAuth": {"adminAccessId": admin_access_id}},
             atomic=True,
-            wait=False
+            wait=False,
+            create_namespace=False
         )
         print(
             revision.release.name,

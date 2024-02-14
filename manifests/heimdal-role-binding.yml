@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: heimdal-deploy-rolebinding
+subjects:
+  - kind: ServiceAccount
+    name: heimdal-sa
+    # Original namespace specified here will be overridden
+roleRef:
+  kind: Role
+  name: heimdal-deploy-role
+  apiGroup: rbac.authorization.k8s.io

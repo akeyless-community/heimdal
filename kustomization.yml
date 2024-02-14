@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: python # change this to the namespace you are deploying into
+
+resources:
+  - manifests/issuer.yml
+  - manifests/heimdal-service-account.yml
+  - manifests/heimdal-role.yml
+  - manifests/heimdal-role-binding.yml
+  - manifests/deployment.yml
+  - manifests/service.yml
+  - manifests/ingress.yml
