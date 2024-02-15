@@ -88,7 +88,16 @@ def extract_gcp_project_id(cloud_id_b64: str) -> str:
 
     # Extract the GCP project ID from the decoded JSON data
     logging.info("Extracting the GCP project ID from the decoded JSON data.")
-    project_id: str = payload_data["google"]["compute_engine"]["project_id"]
+    try:
+        project_id: str = payload_data["google"]["compute_engine"]["project_id"]
+    except KeyError:
+        logging.warning("Failed to extract project ID from the decoded JSON data.")
+        logging.info("Checking the 'email' attribute to attempt to extract the project ID.")
+        try:
+            project_id: str = payload_data["email"].split('@')[1].split('.')[0]
+        except Exception as e:
+            logging.error(f"Failed to extract project ID from the 'email' attribute. Error: {e}")
+            project_id: str = None
 
     logging.debug(f"GCP Project ID: {project_id}")
     return project_id
@@ -345,3 +354,6 @@ def validate_akeyless_token(token) -> ValidateTokenOutput:
     except ApiException as e:
         logging.error(f"Exception when calling V2Api->validate_token: {e}")
         raise
+
+
+def 
