@@ -504,7 +504,7 @@ async def handle_click_async():
     }
     st.session_state.messages.append({"role": "assistant", "content": "Installation process started."})
     with st.status("Processing Installation...", expanded=True):
-        for event in app.with_config({"run_name": "Heimdal with Tools and UI"}).stream(inputs):
+        for event in app.with_config({"run_name": "Heimdal with Tools and UI", "recursion_limit": 50}).stream(inputs):
             for key, value in event.items():
                 if key == "agent":
                     latest_message: AIMessage = value["messages"][-1]

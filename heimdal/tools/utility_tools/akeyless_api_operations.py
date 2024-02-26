@@ -1,9 +1,9 @@
 import base64, json, os, pprint, akeyless, xml.etree.ElementTree as ET, logging, requests
 from langchain.tools import tool
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 import akeyless
 from akeyless.rest import ApiException
-from akeyless.models import CreateAuthMethodAWSIAMOutput, CreateAuthMethodGCPOutput , CreateAuthMethodAzureADOutput, CreateAuthMethodOutput, ValidateTokenOutput
+from akeyless.models import CreateAuthMethodAWSIAMOutput, CreateAuthMethodGCPOutput , CreateAuthMethodAzureADOutput, CreateAuthMethodOutput, ValidateTokenOutput, ListAuthMethodsOutput, AuthMethod, AuthMethodAccessInfo, GCPAccessRules, AWSIAMAccessRules, AzureADAccessRules
 from akeyless_cloud_id import CloudId
 
 # Initialize the CloudId generator
@@ -65,15 +65,15 @@ def extract_aws_account_id(cloud_id_b64: str) -> str:
     logging.debug(f"AWS Account ID: {account_id}")
     return account_id
 
-def extract_gcp_project_id(cloud_id_b64: str) -> str:
+def extract_gcp_project_id(cloud_id_b64: str) -> Tuple[str, str, str]:
     """
-    This function extracts the GCP project ID from the base64 encoded cloud_id.
+    This function extracts the GCP project ID and email from the base64 encoded cloud_id.
 
     Args:
         cloud_id_b64 (str): The base64 encoded cloud_id.
 
     Returns:
-        str: The GCP project ID.
+        Tuple[str, str]: The GCP project ID and email.
     """
     # Decode the base64 cloud_id to get the JSON string
     logging.info("Decoding the base64 cloud_id to get the JSON string.")
@@ -85,22 +85,27 @@ def extract_gcp_project_id(cloud_id_b64: str) -> str:
     payload += '=' * (-len(payload) % 4)
     payload_json: str = base64.urlsafe_b64decode(payload).decode('utf-8')
     payload_data: dict = json.loads(payload_json)
+    
+    email: str = payload_data["email"]
+    gcp_type:str = None
 
     # Extract the GCP project ID from the decoded JSON data
     logging.info("Extracting the GCP project ID from the decoded JSON data.")
     try:
         project_id: str = payload_data["google"]["compute_engine"]["project_id"]
+        gcp_type: str = "gce"
     except KeyError:
         logging.warning("Failed to extract project ID from the decoded JSON data.")
         logging.info("Checking the 'email' attribute to attempt to extract the project ID.")
         try:
             project_id: str = payload_data["email"].split('@')[1].split('.')[0]
+            gcp_type: str = "iam"
         except Exception as e:
             logging.error(f"Failed to extract project ID from the 'email' attribute. Error: {e}")
             project_id: str = None
 
     logging.debug(f"GCP Project ID: {project_id}")
-    return project_id
+    return project_id, email, gcp_type
 
 def extract_azure_tenant_id(cloud_id_b64: str) -> str:
     """
@@ -126,7 +131,7 @@ def extract_azure_tenant_id(cloud_id_b64: str) -> str:
 
 
 def _create_auth_method_name(cloud_service_provider: str, auth_method_name_template: str = '/Heimdal AI Created {cloud_service_provider} Auth Method') -> str:
-    logging.info(f"Creating Akeyless cloud authentication method for {cloud_service_provider}")
+    logging.info(f"Creating Akeyless cloud authentication method for {str(cloud_service_provider).upper()}")
     auth_method_name: str = auth_method_name_template.format(cloud_service_provider=cloud_service_provider)
     return auth_method_name
 
@@ -209,11 +214,18 @@ def create_gcp_cloud_auth_method() -> str:
     logging.debug(f"Auth method name: {auth_method_name}")
     # Generate the cloud ID for GCP
     cloud_id: str = cloud_id_generator.generateGcp()
-    # Extract the GCP project ID from the cloud ID
-    gcp_project_id: str = extract_gcp_project_id(cloud_id)
+    # Extract the GCP project ID and email from the cloud ID
+    gcp_project_id, email, gcp_type: Tuple[str, str, str] = extract_gcp_project_id(cloud_id)
     logging.debug(f"GCP Project ID: {gcp_project_id}")
     # Create the request body for the Akeyless API
-    body: akeyless.CreateAuthMethodGCP = akeyless.CreateAuthMethodGCP(token=token, bound_projects=[gcp_project_id], name=auth_method_name, type="gce")
+    body: akeyless.CreateAuthMethodGCP = akeyless.CreateAuthMethodGCP()
+    body.token = token
+    if gcp_type == "gce":
+        body.bound_projects = [gcp_project_id]
+    if gcp_type == "iam":
+        body.bound_service_accounts = [email]
+    body.name = auth_method_name
+    body.type = gcp_type
     
     logging.debug(f"Creating Akeyless GCP authentication method with the following parameters: {body.to_str()}")
 
@@ -356,4 +368,58 @@ def validate_akeyless_token(token) -> ValidateTokenOutput:
         raise
 
 
-def 
+def get_existing_auth_methods_by_cloud_service_provider(auth_method_type: str = None, auth_method_name:str = None) -> List[AuthMethod]:
+    """
+    This function retrieves the existing Akeyless authentication methods based on the cloud service provider.
+
+    Args:
+        cloud_service_provider (str, optional): The cloud service provider ('aws', 'gcp', 'azure'). Defaults to None.
+        auth_method_name (str, optional): The name of the authentication method. Defaults to None.
+
+    Returns:
+        List[AuthMethod]: The list of existing authentication methods.
+    """
+    logging.info(f"Retrieving existing Akeyless authentication methods for type {str(auth_method_type)}")
+    
+    if auth_method_type == 'aws':
+        auth_method_type = 'aws_iam'
+
+    list_auth_methods_body: akeyless.ListAuthMethods = akeyless.ListAuthMethods()
+    list_auth_methods_body.token = os.getenv('AKEYLESS_TOKEN')
+    if auth_method_type is not None:
+        list_auth_methods_body.type = [auth_method_type]
+    if auth_method_name is not None:
+        list_auth_methods_body.filter = f"/{auth_method_name}"
+    
+    try:
+        list_auth_methods_result: ListAuthMethodsOutput = api.list_auth_methods(list_auth_methods_body)
+        logging.debug(f"List of existing Akeyless authentication methods for type {auth_method_type} and name {auth_method_name}: {list_auth_methods_result.auth_methods}")
+        return list_auth_methods_result.auth_methods
+    except ApiException as e:
+        logging.error(f"Exception when calling V2Api->list_auth_methods: {e}")
+        raise
+
+
+def get_auth_method_details(auth_method_name:str) -> AuthMethod:
+    """
+    This function retrieves the details of an existing Akeyless authentication method.
+
+    Args:
+        auth_method_name (str): The name of the authentication method.
+
+    Returns:
+        AuthMethod: The details of the authentication method.
+    """
+    logging.info(f"Retrieving the details of the Akeyless authentication method: {auth_method_name}")
+    
+    auth_method_body: akeyless.GetAuthMethod = akeyless.GetAuthMethod()
+    auth_method_body.token = os.getenv('AKEYLESS_TOKEN')
+    auth_method_body.name = auth_method_name
+    
+    try:
+        auth_method: AuthMethod = api.get_auth_method(auth_method_body)
+        return auth_method
+    except ApiException as e:
+        logging.error(f"Exception when calling V2Api->get_auth_method: {e}")
+        raise
+

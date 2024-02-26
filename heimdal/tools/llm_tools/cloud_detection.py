@@ -68,6 +68,36 @@ def check_azure() -> Optional[str]:
         pass
     return None
 
+
+def check_oracle() -> Optional[str]:
+    """
+    This function checks if the script is running on Oracle Cloud by trying to reach the Oracle Cloud metadata endpoint.
+    If the metadata request is successful, it returns 'oracle'.
+    If the request fails, it returns None.
+    
+    Returns:
+        Optional[str]: 'oracle' if the script is running on Oracle Cloud, None otherwise.
+    """
+    try:
+        # Prepare the request to the Oracle Cloud metadata endpoint
+        url: str = "http://169.254.169.254/opc/v1/instance/"
+        timeout: int = 2
+        
+        # Make the request
+        oracle_response: requests.Response = requests.get(
+            url,
+            timeout=timeout
+        )
+        
+        # If the metadata request is successful, return 'oracle'
+        if oracle_response.status_code == 200:
+            return 'oracle'
+    except requests.exceptions.RequestException:
+        # If the request fails, return None
+        pass
+    return None
+
+
 def check_gcp() -> Optional[str]:
     """
     This function checks if the script is running on GCP by trying to reach the GCP metadata endpoint.
