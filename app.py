@@ -240,12 +240,20 @@ kubernetes_secret_deployer = StructuredTool.from_function(
 )
 
 
-# Akeyless Gateway Helm Chart Deployer Tool
-async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str):
-    # This will use the Kubernetes configuration from the environment
+async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str) -> str:
+    """
+    This tool is used to deploy the Akeyless Gateway Helm chart in a Kubernetes cluster.
+    It fetches the chart from a remote repository, installs or upgrades a release, and returns the result.
+
+    :param target_namespace: The namespace in which the chart will be deployed.
+    :param admin_access_id: The Akeyless admin access ID to be used for authentication.
+
+    :return: A JSON string with the result of the deployment.
+    """
+    # Initialize the Kubernetes client
     client = Client()
 
-    # Fetch a chart
+    # Fetch the Helm chart
     chart = await client.get_chart(
         "akeyless-api-gateway",
         repo="https://akeylesslabs.github.io/helm-charts",
@@ -261,13 +269,16 @@ async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str):
         atomic=True,
         wait=False
     )
+
+    # Print the details of the release
     print(
-        revision.release.name,
-        revision.release.namespace,
-        revision.revision,
-        str(revision.status)
+        f"Release name: {revision.release.name}",
+        f"Namespace: {revision.release.namespace}",
+        f"Revision: {revision.revision}",
+        f"Status: {str(revision.status)}"
     )
 
+    # Create a dictionary with the result
     results = {
         "revision_release_name": revision.release.name,
         "revision_namespace": revision.release.namespace,
@@ -275,6 +286,7 @@ async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str):
         "status": str(revision.status)
     }
 
+    # Return the result as a JSON string
     return json.dumps(results)
 
 
