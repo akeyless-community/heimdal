@@ -317,31 +317,33 @@ def create_akeyless_cloud_auth_method(cloud_service_provider: str) -> Tuple[str,
 
 
 
-
-def validate_akeyless_token(token) -> ValidateTokenOutput:
+def validate_akeyless_token(token: str) -> ValidateTokenOutput:
     """
-    This function validates the Akeyless token.
+    This function validates the Akeyless token and returns the details of the validation result.
 
     Args:
         token (str): The Akeyless token to be validated.
 
     Returns:
-        str: The validation result.
+        ValidateTokenOutput: An object containing the validation result details, including:
+            - expiration (str): The expiration time of the token.
+            - is_valid (bool): A boolean indicating whether the token is valid.
+            - reason (str): The reason for the token's validation status.
     """
     logging.info("Validating Akeyless token.")
     
-    # Assuming there is a validation API endpoint or method
     try:
         # Call the Akeyless API to validate the token
         validation_result: ValidateTokenOutput = api.validate_token(token)
         logging.debug(f"Validation result: {validation_result}")
 
-        if validation_result == 'valid':
+        if validation_result.is_valid:
             logging.info("Akeyless token is valid.")
         else:
-            logging.info("Akeyless token is invalid.")
+            logging.info(f"Akeyless token is invalid. Reason: {validation_result.reason}")
 
         return validation_result
     except ApiException as e:
         logging.error(f"Exception when calling V2Api->validate_token: {e}")
         raise
+
