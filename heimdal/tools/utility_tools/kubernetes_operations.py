@@ -1,7 +1,8 @@
 import base64, json, logging, requests, subprocess, yaml, tempfile, os
 from langchain_core.tools import ToolException, StructuredTool
 from langchain.tools import tool
-from typing import Tuple, Union
+from typing import List, Tuple, Union
+from pyhelm3 import Client
 from kubernetes import client, config, config as k8s_config
 
 # Create a logger object
@@ -410,3 +411,79 @@ def deploy_gateway_helm_chart(auth_method_id: str, namespace: str) -> str:
     except subprocess.CalledProcessError as e:
         print(f"Failed to add or update Akeyless Helm repository.\nError: {e.stderr}")
         raise
+
+
+
+async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, release_name: str = "gw") -> str:
+    """
+    This tool is used to deploy the Akeyless Gateway Helm chart in a Kubernetes cluster.
+    It fetches the chart from a remote repository, installs or upgrades a release, and returns the result.
+
+    :param target_namespace: The namespace in which the chart will be deployed.
+    :param admin_access_id: The Akeyless admin access ID to be used for authentication.
+    :param release_name: The release name for the Helm chart, defaulting to "gw".
+
+    :return: A JSON string with the result of the deployment.
+    """
+    # Initialize the Kubernetes client
+    client = Client()
+
+    # Fetch the Helm chart
+    chart = await client.get_chart(
+        "akeyless-api-gateway",
+        repo="https://akeylesslabs.github.io/helm-charts",
+        version="1.37.1"
+    )
+
+    # Install or upgrade a release
+    revision = await client.install_or_upgrade_release(
+        release_name,
+        chart,
+        target_namespace,
+        {"akeylessUserAuth": {"adminAccessId": admin_access_id}},
+        atomic=True,
+        wait=False
+    )
+
+    # Print the details of the release
+    print(
+        f"Release name: {revision.release.name}",
+        f"Namespace: {revision.release.namespace}",
+        f"Revision: {revision.revision}",
+        f"Status: {str(revision.status)}"
+    )
+
+    # Create a dictionary with the result
+    results = {
+        "revision_release_name": revision.release.name,
+        "revision_namespace": revision.release.namespace,
+        "revision": revision.revision,
+        "status": str(revision.status)
+    }
+
+    # Return the result as a JSON string
+    return json.dumps(results)
+
+
+
+def get_deployed_helm_releases(namespace: str) -> List[str]:
+    """
+    This function uses the pyhelm3 library to find out what Helm releases have been deployed into a namespace.
+    It returns a list of release names that are currently deployed in the given namespace.
+
+    Args:
+        namespace (str): The Kubernetes namespace to check for deployed Helm releases.
+
+    Returns:
+        List[str]: A list of Helm release names deployed in the namespace.
+    """
+    # Initialize the Helm client
+    client = Client()
+
+    # List all releases in the namespace
+    releases = client.list_releases(namespace)
+
+    # Extract the release names from the releases
+    release_names = [release.name for release in releases]
+
+    return release_names

@@ -1,4 +1,4 @@
-from heimdal.tools.utility_tools.kubernetes_operations import can_i_deploy_into_namespace, fetch_service_account_info, generate_k8s_secret_from_literal_values
+from heimdal.tools.utility_tools.kubernetes_operations import can_i_deploy_into_namespace, deploy_akeyless_gateway, fetch_service_account_info, generate_k8s_secret_from_literal_values, get_deployed_helm_releases
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolInvocation
 from langchain_openai import ChatOpenAI
@@ -7,7 +7,7 @@ from langchain_core.messages import ToolMessage
 import json
 from langchain_core.messages import BaseMessage
 from pyhelm3 import Client
-from typing import Callable, TypedDict, Sequence
+from typing import Callable, List, TypedDict, Sequence
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import (
     ChatPromptTemplate,
@@ -26,7 +26,7 @@ import os
 import json
 import asyncio
 from heimdal.tools.llm_tools.cloud_detection import detect_cloud_provider
-from heimdal.tools.utility_tools.akeyless_api_operations import create_akeyless_api_key_auth_method, create_aws_cloud_auth_method, create_azure_cloud_auth_method, create_gcp_cloud_auth_method
+from heimdal.tools.utility_tools.akeyless_api_operations import check_if_akeyless_auth_method_exists_from_list_auth_methods, create_akeyless_api_key_auth_method, create_aws_cloud_auth_method, create_azure_cloud_auth_method, create_gcp_cloud_auth_method, validate_akeyless_token
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -240,65 +240,34 @@ kubernetes_secret_deployer = StructuredTool.from_function(
 )
 
 
-# Akeyless Gateway Helm Chart Deployer Tool
-async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str):
-    # This will use the Kubernetes configuration from the environment
-    client = Client()
-
-    # Fetch a chart
-    chart = await client.get_chart(
-        "akeyless-api-gateway",
-        repo="https://akeylesslabs.github.io/helm-charts",
-        version="1.37.1"
-    )
-
-    # Install or upgrade a release
-    revision = await client.install_or_upgrade_release(
-        "gw",
-        chart,
-        target_namespace,
-        {"akeylessUserAuth": {"adminAccessId": admin_access_id}},
-        atomic=True,
-        wait=False
-    )
-    print(
-        revision.release.name,
-        revision.release.namespace,
-        revision.revision,
-        str(revision.status)
-    )
-
-    results = {
-        "revision_release_name": revision.release.name,
-        "revision_namespace": revision.release.namespace,
-        "revision": revision.revision,
-        "status": str(revision.status)
-    }
-
-    return json.dumps(results)
-
-
 class HelmChartDeployment(BaseModel):
     namespace: str = Field(
         description="Namespace in which the chart will be deployed")
     auth_method_id: str = Field(
         description="Akeyless access id for auth method")
+    release_name: str = Field(
+        default="gw",
+        description="Optional: The release name for the Helm chart. Defaults to 'gw' if not provided.")
 
-
-def helm_chart_deployer_tool(namespace: str, auth_method_id: str) -> str:
+def helm_chart_deployer_tool(namespace: str, auth_method_id: str, release_name: str = "gw") -> str:
     """
     This tool is used to deploy the Akeyless Gateway Helm chart in a Kubernetes cluster.
     It makes an external API call to the k8s cluster to deploy the chart.
+    The release name is optional and defaults to "gw".
+
+    :param namespace: The namespace in which the chart will be deployed.
+    :param auth_method_id: The Akeyless admin access ID to be used for authentication.
+    :param release_name: Optional. The release name for the Helm chart. If not specified, "gw" will be used as the default release name.
+    :return: A JSON string with the result of the deployment.
     """
     try:
-        logger.debug("Deploying Helm chart with auth method id: " +
-                     auth_method_id + " in namespace: " + namespace)
+        logger.debug(f"Deploying Helm chart with release name '{release_name}', auth method id: '{auth_method_id}' in namespace: '{namespace}'")
         result = asyncio.run(
-            deploy_akeyless_gateway(namespace, auth_method_id))
+            deploy_akeyless_gateway(namespace, auth_method_id, release_name))
         return result
     except Exception as e:
         error_message = {"error": str(e)}
-        logger.error("Error deploying Helm chart: " + str(e))
+        logger.error(f"Error deploying Helm chart: {e}")
         return json.dumps(error_message)
 
 
@@ -328,6 +297,95 @@ can_i_deploy_into_namespace_checker = StructuredTool.from_function(
 )
 
 
+def get_list_of_helm_releases_in_namespace_tool(namespace: str) -> str:
+    """
+    This tool is used to get the list of helm releases in a namespace.
+    It makes an external API call to get the list of releases.
+    """
+    helm_releases_in_namespace: List[str] = get_deployed_helm_releases(namespace)
+    return json.dumps({"helm_releases_in_namespace": helm_releases_in_namespace})
+
+
+get_list_of_helm_releases_in_namespace = StructuredTool.from_function(
+    func=get_list_of_helm_releases_in_namespace_tool,
+    name="Get_List_Of_Helm_Releases_In_Namespace",
+    description="Get the list of helm releases in a namespace. This tool can be used to determine if the anticipated helm chart release name is already taken and a new name needs to be generated and used.",
+    return_direct=False,
+)
+
+
+
+class TokenValidation(BaseModel):
+    token: str = Field(description="The Akeyless token to be validated")
+
+
+def get_akeyless_token_validation_information_tool(token: str) -> str:
+    """
+    This tool is used to get the details of the validation result of an Akeyless token.
+    It makes an external API call to get the validation result details.
+    
+    Args:
+        token (str): The Akeyless token to be validated.
+    
+    Returns:
+        str: A JSON string containing the validation result details, including:
+            - expiration (str): The expiration time of the token.
+            - is_valid (bool): A boolean indicating whether the token is valid.
+            - reason (str): The reason for the token's validation status.
+    """
+    logging.info("Getting Akeyless token validation information.")
+    validation_result = validate_akeyless_token(token)
+    logging.debug(f"Validation result: {validation_result}")
+    return json.dumps({
+        "expiration": validation_result.expiration,
+        "is_valid": validation_result.is_valid,
+        "reason": validation_result.reason
+    })
+
+
+get_akeyless_token_validation_information = StructuredTool.from_function(
+    func=get_akeyless_token_validation_information_tool,
+    name="Get_Akeyless_Token_Validation_Information",
+    description="Get the details of the validation result of an Akeyless token. This tool can be used to determine if the Akeyless token is valid and the reason for its validation status. The result is a JSON string with the following structure: {'expiration': '2022-01-01T00:00:00Z', 'is_valid': True, 'reason': 'Token is valid'}",
+    args_schema=TokenValidation,
+    return_direct=False,
+)
+
+
+
+class AkeylessAuthMethodValidation(BaseModel):
+    auth_method_name: str = Field(description="The name of the Akeyless authentication method to be validated.")
+
+
+def check_if_akeyless_auth_method_exists_tool(auth_method_name: str) -> str:
+    """
+    This tool is used to check if an Akeyless authentication method with a specific name already exists.
+
+    Args:
+        auth_method_name (str): The name of the Akeyless authentication method to be validated.
+
+    Returns:
+        str: A JSON string indicating whether the authentication method exists and another name should be chosen.
+    """
+    try:
+        logging.info(f"Checking if Akeyless authentication method with name {auth_method_name} exists.")
+        auth_method_exists = check_if_akeyless_auth_method_exists_from_list_auth_methods(auth_method_name)
+        return json.dumps({"auth_method_exists": auth_method_exists})
+    except Exception as e:
+        logging.error(f"Exception when checking if Akeyless authentication method exists: {e}")
+        raise
+
+
+check_if_akeyless_auth_method_exists = StructuredTool.from_function(
+    func=check_if_akeyless_auth_method_exists_tool,
+    name="Check_If_Akeyless_Auth_Method_Exists",
+    description="Check if an Akeyless authentication method with a specific name already exists, if it does then another name should be chosen.",
+    args_schema=AkeylessAuthMethodValidation,
+    return_direct=False,
+)
+
+
+
 tools = [
     get_pod_namespace_and_service_account,
     can_i_deploy_into_namespace_checker,
@@ -337,7 +395,10 @@ tools = [
     gcp_auth_method_creator,
     # api_key_auth_method_creator,
     # kubernetes_secret_deployer,
-    helm_chart_deployer
+    helm_chart_deployer,
+    get_list_of_helm_releases_in_namespace,
+    get_akeyless_token_validation_information,
+    check_if_akeyless_auth_method_exists
 ]
 
 tool_executor = ToolExecutor(tools)
