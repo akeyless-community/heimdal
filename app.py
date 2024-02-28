@@ -1,4 +1,4 @@
-from heimdal.tools.utility_tools.kubernetes_operations import can_i_deploy_into_namespace, fetch_service_account_info, generate_k8s_secret_from_literal_values
+from heimdal.tools.utility_tools.kubernetes_operations import can_i_deploy_into_namespace, deploy_akeyless_gateway, fetch_service_account_info, generate_k8s_secret_from_literal_values, get_deployed_helm_releases
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolInvocation
 from langchain_openai import ChatOpenAI
@@ -7,7 +7,7 @@ from langchain_core.messages import ToolMessage
 import json
 from langchain_core.messages import BaseMessage
 from pyhelm3 import Client
-from typing import Callable, TypedDict, Sequence
+from typing import Callable, List, TypedDict, Sequence
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import (
     ChatPromptTemplate,
@@ -240,77 +240,34 @@ kubernetes_secret_deployer = StructuredTool.from_function(
 )
 
 
-async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str) -> str:
-    """
-    This tool is used to deploy the Akeyless Gateway Helm chart in a Kubernetes cluster.
-    It fetches the chart from a remote repository, installs or upgrades a release, and returns the result.
-
-    :param target_namespace: The namespace in which the chart will be deployed.
-    :param admin_access_id: The Akeyless admin access ID to be used for authentication.
-
-    :return: A JSON string with the result of the deployment.
-    """
-    # Initialize the Kubernetes client
-    client = Client()
-
-    # Fetch the Helm chart
-    chart = await client.get_chart(
-        "akeyless-api-gateway",
-        repo="https://akeylesslabs.github.io/helm-charts",
-        version="1.37.1"
-    )
-
-    # Install or upgrade a release
-    revision = await client.install_or_upgrade_release(
-        "gw",
-        chart,
-        target_namespace,
-        {"akeylessUserAuth": {"adminAccessId": admin_access_id}},
-        atomic=True,
-        wait=False
-    )
-
-    # Print the details of the release
-    print(
-        f"Release name: {revision.release.name}",
-        f"Namespace: {revision.release.namespace}",
-        f"Revision: {revision.revision}",
-        f"Status: {str(revision.status)}"
-    )
-
-    # Create a dictionary with the result
-    results = {
-        "revision_release_name": revision.release.name,
-        "revision_namespace": revision.release.namespace,
-        "revision": revision.revision,
-        "status": str(revision.status)
-    }
-
-    # Return the result as a JSON string
-    return json.dumps(results)
-
-
 class HelmChartDeployment(BaseModel):
     namespace: str = Field(
         description="Namespace in which the chart will be deployed")
     auth_method_id: str = Field(
         description="Akeyless access id for auth method")
+    release_name: str = Field(
+        default="gw",
+        description="Optional: The release name for the Helm chart. Defaults to 'gw' if not provided.")
 
-
-def helm_chart_deployer_tool(namespace: str, auth_method_id: str) -> str:
+def helm_chart_deployer_tool(namespace: str, auth_method_id: str, release_name: str = "gw") -> str:
     """
     This tool is used to deploy the Akeyless Gateway Helm chart in a Kubernetes cluster.
     It makes an external API call to the k8s cluster to deploy the chart.
+    The release name is optional and defaults to "gw".
+
+    :param namespace: The namespace in which the chart will be deployed.
+    :param auth_method_id: The Akeyless admin access ID to be used for authentication.
+    :param release_name: Optional. The release name for the Helm chart. If not specified, "gw" will be used as the default release name.
+    :return: A JSON string with the result of the deployment.
     """
     try:
-        logger.debug("Deploying Helm chart with auth method id: " +
-                     auth_method_id + " in namespace: " + namespace)
+        logger.debug(f"Deploying Helm chart with release name '{release_name}', auth method id: '{auth_method_id}' in namespace: '{namespace}'")
         result = asyncio.run(
-            deploy_akeyless_gateway(namespace, auth_method_id))
+            deploy_akeyless_gateway(namespace, auth_method_id, release_name))
         return result
     except Exception as e:
         error_message = {"error": str(e)}
-        logger.error("Error deploying Helm chart: " + str(e))
+        logger.error(f"Error deploying Helm chart: {e}")
         return json.dumps(error_message)
 
 
@@ -340,6 +297,22 @@ can_i_deploy_into_namespace_checker = StructuredTool.from_function(
 )
 
 
+def get_list_of_helm_releases_in_namespace_tool(namespace: str) -> str:
+    """
+    This tool is used to get the list of helm releases in a namespace.
+    It makes an external API call to get the list of releases.
+    """
+    helm_releases_in_namespace: List[str] = get_deployed_helm_releases(namespace)
+    return json.dumps({"helm_releases_in_namespace": helm_releases_in_namespace})
+
+
+get_list_of_helm_releases_in_namespace = StructuredTool.from_function(
+    func=get_list_of_helm_releases_in_namespace_tool,
+    name="Get_List_Of_Helm_Releases_In_Namespace",
+    description="Get the list of helm releases in a namespace. This tool can be used to determine if the anticipated helm chart release name is already taken and a new name needs to be generated and used.",
+    return_direct=False,
+)   
+
 tools = [
     get_pod_namespace_and_service_account,
     can_i_deploy_into_namespace_checker,
@@ -349,7 +322,8 @@ tools = [
     gcp_auth_method_creator,
     # api_key_auth_method_creator,
     # kubernetes_secret_deployer,
-    helm_chart_deployer
+    helm_chart_deployer,
+    get_list_of_helm_releases_in_namespace
 ]
 
 tool_executor = ToolExecutor(tools)
