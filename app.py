@@ -26,7 +26,7 @@ import os
 import json
 import asyncio
 from heimdal.tools.llm_tools.cloud_detection import detect_cloud_provider
-from heimdal.tools.utility_tools.akeyless_api_operations import create_akeyless_api_key_auth_method, create_aws_cloud_auth_method, create_azure_cloud_auth_method, create_gcp_cloud_auth_method, validate_akeyless_token
+from heimdal.tools.utility_tools.akeyless_api_operations import check_if_akeyless_auth_method_exists_from_list_auth_methods, create_akeyless_api_key_auth_method, create_aws_cloud_auth_method, create_azure_cloud_auth_method, create_gcp_cloud_auth_method, validate_akeyless_token
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -351,6 +351,41 @@ get_akeyless_token_validation_information = StructuredTool.from_function(
     return_direct=False,
 )
 
+
+
+class AkeylessAuthMethodValidation(BaseModel):
+    auth_method_name: str = Field(description="The name of the Akeyless authentication method to be validated.")
+
+
+def check_if_akeyless_auth_method_exists_tool(auth_method_name: str) -> str:
+    """
+    This tool is used to check if an Akeyless authentication method with a specific name already exists.
+
+    Args:
+        auth_method_name (str): The name of the Akeyless authentication method to be validated.
+
+    Returns:
+        str: A JSON string indicating whether the authentication method exists and another name should be chosen.
+    """
+    try:
+        logging.info(f"Checking if Akeyless authentication method with name {auth_method_name} exists.")
+        auth_method_exists = check_if_akeyless_auth_method_exists_from_list_auth_methods(auth_method_name)
+        return json.dumps({"auth_method_exists": auth_method_exists})
+    except Exception as e:
+        logging.error(f"Exception when checking if Akeyless authentication method exists: {e}")
+        raise
+
+
+check_if_akeyless_auth_method_exists = StructuredTool.from_function(
+    func=check_if_akeyless_auth_method_exists_tool,
+    name="Check_If_Akeyless_Auth_Method_Exists",
+    description="Check if an Akeyless authentication method with a specific name already exists, if it does then another name should be chosen.",
+    args_schema=AkeylessAuthMethodValidation,
+    return_direct=False,
+)
+
+
+
 tools = [
     get_pod_namespace_and_service_account,
     can_i_deploy_into_namespace_checker,
@@ -362,7 +397,8 @@ tools = [
     # kubernetes_secret_deployer,
     helm_chart_deployer,
     get_list_of_helm_releases_in_namespace,
-    get_akeyless_token_validation_information
+    get_akeyless_token_validation_information,
+    check_if_akeyless_auth_method_exists
 ]
 
 tool_executor = ToolExecutor(tools)

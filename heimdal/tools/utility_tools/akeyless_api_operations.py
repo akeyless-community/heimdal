@@ -1,9 +1,9 @@
 import base64, json, os, pprint, akeyless, xml.etree.ElementTree as ET, logging, requests
 from langchain.tools import tool
-from typing import Tuple, Union
+from typing import List, Tuple, Union
 import akeyless
 from akeyless.rest import ApiException
-from akeyless.models import CreateAuthMethodAWSIAMOutput, CreateAuthMethodGCPOutput , CreateAuthMethodAzureADOutput, CreateAuthMethodOutput, ValidateTokenOutput
+from akeyless.models import CreateAuthMethodAWSIAMOutput, CreateAuthMethodGCPOutput , CreateAuthMethodAzureADOutput, CreateAuthMethodOutput, ValidateTokenOutput, ListAuthMethodsOutput, ListAuthMethods, AuthMethod
 from akeyless_cloud_id import CloudId
 
 # Initialize the CloudId generator
@@ -334,7 +334,7 @@ def validate_akeyless_token(token: str) -> ValidateTokenOutput:
     
     try:
         # Call the Akeyless API to validate the token
-        validation_result: ValidateTokenOutput = api.validate_token(token)
+        validation_result: ValidateTokenOutput = api.validate_token(token=token)
         logging.debug(f"Validation result: {validation_result}")
 
         if validation_result.is_valid:
@@ -346,4 +346,39 @@ def validate_akeyless_token(token: str) -> ValidateTokenOutput:
     except ApiException as e:
         logging.error(f"Exception when calling V2Api->validate_token: {e}")
         raise
+
+
+
+# This function checks if an Akeyless authentication method with a specific name already exists.
+# It uses the list_auth_methods API to filter for the specific name and then checks if the name exists in the returned list.
+def check_if_akeyless_auth_method_exists_from_list_auth_methods(auth_method_name: str) -> bool:
+    """
+    This function checks if an Akeyless authentication method with a specific name already exists.
+    It uses the list_auth_methods API to filter for the specific name and then checks if the name exists in the returned list.
+
+    Args:
+        auth_method_name (str): The name of the Akeyless authentication method to check.
+
+    Returns:
+        bool: True if the authentication method exists, False otherwise.
+    """
+    logging.info(f"Checking if Akeyless authentication method with name {auth_method_name} exists.")
+    token = os.getenv('AKEYLESS_TOKEN')
+    list_auth_methods_body: ListAuthMethods = akeyless.ListAuthMethods()
+    list_auth_methods_body.token = token
+    if not auth_method_name.startswith('/'):
+        auth_method_name = f'/{auth_method_name}'
+    list_auth_methods_body.filter = auth_method_name
+    try:
+        list_auth_methods_output: ListAuthMethodsOutput = api.list_auth_methods(list_auth_methods_body)
+        logging.debug(list_auth_methods_output)
+        auth_methods: List[AuthMethod] = list_auth_methods_output.auth_methods
+        for auth_method in auth_methods:
+            if auth_method.auth_method_name == auth_method_name:
+                return True
+        return False
+    except ApiException as e:
+        logging.error(f"Exception when calling V2Api->list_auth_methods: {e}")
+        raise
+
 
