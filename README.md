@@ -39,4 +39,4 @@ For support, please open an issue in the project's GitHub repository or reach ou
 
 ## License
 
-Heimdal is open-source software licensed under the MIT license.
+Heimdal is open-source software licensed under the Apache License 2.0.
