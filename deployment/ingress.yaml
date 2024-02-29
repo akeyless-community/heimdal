@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  name: heimdal-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: heimdal.example.com
+      http:
+        paths:
+          - backend:
+              service:
+                name: heimdal-service
+                port:
+                  number: 80
+            path: /
+            pathType: ImplementationSpecific
+  tls:
+    - hosts:
+        - heimdal.example.com
+      secretName: heimdal-tls
