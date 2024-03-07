@@ -99,11 +99,12 @@ if "messages" not in st.session_state:
 
 if akeyless_token and akeyless_token.startswith("t-"):
 
+    st_callback = StreamlitCallbackHandler(st.container())
+    message_placeholder = st.empty()
+    
     # Check if the button was previously clicked. Only show the button if it hasn't been clicked yet
     if not st.session_state.button_clicked:
         st.chat_message("assistant").write(st.session_state.messages[0]["content"])
-        st_callback = StreamlitCallbackHandler(st.container())
-        message_placeholder = st.empty()
         # Process the user's question and generate a response
         if st.button("Approve the Scanning of the environment and install the Akeyless Gateway", type="primary"):
             handle_click(message_placeholder)

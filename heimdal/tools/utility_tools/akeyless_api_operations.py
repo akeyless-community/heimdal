@@ -117,8 +117,26 @@ def extract_azure_tenant_id(cloud_id_b64: str) -> str:
 
 
 def _create_auth_method_name(cloud_service_provider: str, auth_method_name_template: str = '/Heimdal AI Created {cloud_service_provider} Auth Method') -> str:
-    logging.info(f"Creating Akeyless cloud authentication method for {cloud_service_provider}")
+    """
+    Generates a formatted authentication method name for a given cloud service provider.
+
+    This function takes the name of a cloud service provider (e.g., AWS, Azure, GCP) and a template string,
+    then formats the template with the cloud service provider's name to generate a unique authentication method name.
+
+    Args:
+        cloud_service_provider (str): The name of the cloud service provider for which to create the authentication method name.
+        auth_method_name_template (str): A template string for the authentication method name. Defaults to '/Heimdal AI Created {cloud_service_provider} Auth Method'.
+
+    Returns:
+        str: The formatted authentication method name.
+
+    Example:
+        >>> _create_auth_method_name('AWS')
+        '/Heimdal AI Created AWS Auth Method'
+    """
+    logging.info(f"Initiating the creation of an Akeyless cloud authentication method name for {cloud_service_provider}.")
     auth_method_name: str = auth_method_name_template.format(cloud_service_provider=cloud_service_provider)
+    logging.debug(f"Generated authentication method name: {auth_method_name}")
     return auth_method_name
 
 
@@ -332,9 +350,12 @@ def validate_akeyless_token(token: str) -> ValidateTokenOutput:
     """
     logging.info("Validating Akeyless token.")
     
+    body: akeyless.ValidateToken = akeyless.ValidateToken()
+    body.token = token
+    
     try:
         # Call the Akeyless API to validate the token
-        validation_result: ValidateTokenOutput = api.validate_token(token=token)
+        validation_result: ValidateTokenOutput = api.validate_token(body)
         logging.debug(f"Validation result: {validation_result}")
 
         if validation_result.is_valid:
