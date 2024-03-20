@@ -414,38 +414,55 @@ def deploy_gateway_helm_chart(auth_method_id: str, namespace: str) -> str:
 
 
 
-async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, release_name: str = "gw") -> str:
+async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, release_name: str = "gw", isGKE_workload_identity: bool = True) -> str:
     """
-    This tool is used to deploy the Akeyless Gateway Helm chart in a Kubernetes cluster.
-    It fetches the chart from a remote repository, installs or upgrades a release, and returns the result.
+    Asynchronously deploys the Akeyless Gateway Helm chart into a specified Kubernetes namespace. This function fetches the latest version of the chart from a remote repository, installs or upgrades the release with custom values, and returns the deployment result in JSON format.
 
-    :param target_namespace: The namespace in which the chart will be deployed.
-    :param admin_access_id: The Akeyless admin access ID to be used for authentication.
-    :param release_name: The release name for the Helm chart, defaulting to "gw".
+    Args:
+        target_namespace (str): The Kubernetes namespace where the Helm chart will be deployed.
+        admin_access_id (str): The Akeyless admin access ID used for authentication within the Akeyless Gateway.
+        release_name (str, optional): The release name for the Helm chart. Defaults to "gw".
+        isGKE_workload_identity (bool, optional): A flag indicating whether to configure the deployment for GKE workload identity. Defaults to True.
 
-    :return: A JSON string with the result of the deployment.
+    Returns:
+        str: A JSON string containing details about the Helm chart deployment, including the release name, namespace, revision number, and deployment status.
     """
     # Initialize the Kubernetes client
     client = Client()
+    
+    # Fetch the latest version of the Akeyless Helm chart
+    latest_akeyless_helm_chart_version = await get_latest_akeyless_helm_chart_release_number()
 
-    # Fetch the Helm chart
+    # Retrieve the Helm chart
     chart = await client.get_chart(
         "akeyless-api-gateway",
         repo="https://akeylesslabs.github.io/helm-charts",
-        version="1.37.1"
+        version=latest_akeyless_helm_chart_version
     )
+    
+    # Prepare custom values for the Helm chart deployment
+    values = {"akeylessUserAuth": {"adminAccessId": admin_access_id}}
 
-    # Install or upgrade a release
+    # Configure node selector for GKE workload identity if enabled
+    if isGKE_workload_identity:
+        values["deployment"] = {
+            "nodeSelector": {"iam.gke.io/gke-metadata-server-enabled": "true"},
+            "service_account": {
+                "serviceAccountName": "heimdal-sa"
+            }
+        }
+
+    # Install or upgrade the Helm chart release
     revision = await client.install_or_upgrade_release(
         release_name,
         chart,
         target_namespace,
-        {"akeylessUserAuth": {"adminAccessId": admin_access_id}},
+        values,
         atomic=True,
         wait=False
     )
 
-    # Print the details of the release
+    # Log the details of the deployed release
     print(
         f"Release name: {revision.release.name}",
         f"Namespace: {revision.release.namespace}",
@@ -453,7 +470,7 @@ async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, r
         f"Status: {str(revision.status)}"
     )
 
-    # Create a dictionary with the result
+    # Compile the deployment result into a dictionary
     results = {
         "revision_release_name": revision.release.name,
         "revision_namespace": revision.release.namespace,
@@ -461,7 +478,7 @@ async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, r
         "status": str(revision.status)
     }
 
-    # Return the result as a JSON string
+    # Return the deployment result as a JSON string
     return json.dumps(results)
 
 
@@ -481,9 +498,42 @@ def get_deployed_helm_releases(namespace: str) -> List[str]:
     client = Client()
 
     # List all releases in the namespace
-    releases = client.list_releases(namespace)
+    releases = client.list_releases(namespace=namespace)
 
     # Extract the release names from the releases
     release_names = [release.name for release in releases]
 
     return release_names
+
+
+async def get_latest_akeyless_helm_chart_release_number() -> str:
+    """
+    This function returns the latest release number of the Akeyless Helm chart from the Akeyless Helm repository.
+    """
+    return await get_latest_helm_chart_release_number("akeyless-api-gateway", "https://akeylesslabs.github.io/helm-charts")
+
+
+async def get_latest_helm_chart_release_number(chart_ref:str, chart_repo:str) -> str:
+    """
+    This function returns the latest release number of a Helm chart from a Helm repository.
+    It attempts to handle exceptions and errors more gracefully to be less brittle.
+    """
+    # Initialize the Helm client
+    client = Client()
+
+    try:
+        # Fetch the Helm chart
+        chart = await client.get_chart(
+            chart_ref,
+            repo=chart_repo
+        )
+        # Return the latest release number if available
+        if chart and chart.metadata and chart.metadata.version:
+            return chart.metadata.version
+        else:
+            raise ValueError("Chart metadata or version is missing.")
+    except Exception as e:
+        # Log the error for debugging purposes
+        logging.error(f"Failed to fetch the latest Helm chart release number for {chart_ref} from {chart_repo}: {e}")
+        # Return a default value or raise an exception as per your error handling policy
+        return "unknown"

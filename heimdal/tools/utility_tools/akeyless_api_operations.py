@@ -65,33 +65,56 @@ def extract_aws_account_id(cloud_id_b64: str) -> str:
     logging.debug(f"AWS Account ID: {account_id}")
     return account_id
 
-def extract_gcp_project_id(cloud_id_b64: str) -> str:
+def extract_gcp_project_id(cloud_id_b64: str) -> Tuple[str, str]:
     """
-    This function extracts the GCP project ID from the base64 encoded cloud_id.
+    This function extracts the GCP project ID or the full GCP service account email address from the base64 encoded cloud_id and identifies if the project ID or the service account email was extracted through GCE or GKE workload identity (iam).
+    It supports both GCE metadata and GKE workload identity formats.
+    In the case of GKE workload identity, it will return the full Google service account email used.
 
     Args:
         cloud_id_b64 (str): The base64 encoded cloud_id.
 
     Returns:
-        str: The GCP project ID.
+        Tuple[str, str]: The GCP project ID or the full GCP service account email address and the source through which it was extracted (gce or iam).
     """
-    # Decode the base64 cloud_id to get the JSON string
-    logging.info("Decoding the base64 cloud_id to get the JSON string.")
-    logging.debug("JWT token read successfully.")
-    cloud_id_json_str: str = base64.b64decode(cloud_id_b64).decode('utf-8')
-    # Split the JWT token which is in 'header.payload.signature' format
-    payload: str = cloud_id_json_str.split('.')[1]
-    # Correct padding for Base64 decoding
-    payload += '=' * (-len(payload) % 4)
-    payload_json: str = base64.urlsafe_b64decode(payload).decode('utf-8')
-    payload_data: dict = json.loads(payload_json)
+    source = ""
+    extracted_value = ""
+    try:
+        # Decode the base64 cloud_id to get the JSON string
+        logging.info("Decoding the base64 cloud_id to get the JSON string.")
+        cloud_id_json_str: str = base64.b64decode(cloud_id_b64).decode('utf-8')
+        logging.debug(f"Decoded cloud_id JSON string: {cloud_id_json_str}")
 
-    # Extract the GCP project ID from the decoded JSON data
-    logging.info("Extracting the GCP project ID from the decoded JSON data.")
-    project_id: str = payload_data["google"]["compute_engine"]["project_id"]
+        # Split the JWT token which is in 'header.payload.signature' format
+        payload: str = cloud_id_json_str.split('.')[1]
+        logging.debug(f"Extracted payload from JWT: {payload}")
 
-    logging.debug(f"GCP Project ID: {project_id}")
-    return project_id
+        # Correct padding for Base64 decoding
+        payload += '=' * (-len(payload) % 4)
+        logging.debug(f"Corrected payload padding for Base64 decoding.")
+
+        payload_json: str = base64.urlsafe_b64decode(payload).decode('utf-8')
+        payload_data: dict = json.loads(payload_json)
+        logging.debug(f"Decoded payload JSON data: {payload_data}")
+
+        # Extract the GCP project ID or the full GCP service account email address from the decoded JSON data
+        logging.info("Extracting the GCP project ID or the full GCP service account email address from the decoded JSON data.")
+        if "google" in payload_data:
+            extracted_value = payload_data["google"]["compute_engine"]["project_id"]
+            source = "gce"
+            logging.debug(f"Extracted GCP project ID from 'google' key: {extracted_value}")
+        elif "email" in payload_data:
+            extracted_value = payload_data["email"]
+            source = "iam"
+            logging.debug(f"Extracted full GCP service account email address from 'email' key: {extracted_value}")
+        else:
+            logging.warning("Unable to find GCP project ID or the full GCP service account email address in the provided cloud_id.")
+
+        logging.info(f"Extracted value: {extracted_value} extracted through {source}")
+        return extracted_value, source
+    except Exception as e:
+        logging.error(f"Error extracting GCP project ID or the full GCP service account email address: {e}")
+        raise
 
 def extract_azure_tenant_id(cloud_id_b64: str) -> str:
     """
@@ -216,13 +239,42 @@ def create_gcp_cloud_auth_method() -> str:
     # Create the authentication method name for GCP
     auth_method_name = _create_auth_method_name("GCP")
     logging.debug(f"Auth method name: {auth_method_name}")
+    
     # Generate the cloud ID for GCP
     cloud_id: str = cloud_id_generator.generateGcp()
+    logging.debug(f"Cloud ID for GCP: {cloud_id}")
+    
     # Extract the GCP project ID from the cloud ID
-    gcp_project_id: str = extract_gcp_project_id(cloud_id)
-    logging.debug(f"GCP Project ID: {gcp_project_id}")
-    # Create the request body for the Akeyless API
-    body: akeyless.CreateAuthMethodGCP = akeyless.CreateAuthMethodGCP(token=token, bound_projects=[gcp_project_id], name=auth_method_name, type="gce")
+    gcp_project_id: str
+    extraction_source: str
+    extracted_value, extraction_source = extract_gcp_project_id(cloud_id)
+    logging.debug(f"GCP ID: {extracted_value}")
+    logging.debug(f"GCP Project ID extraction source: {extraction_source}")
+    
+    # Create the request body for the Akeyless API based on the extraction source
+    if extraction_source == "gce":
+        body: akeyless.CreateAuthMethodGCP = akeyless.CreateAuthMethodGCP(
+            token=token,
+            bound_projects=[extracted_value],
+            name=auth_method_name,
+            type=extraction_source
+        )
+    elif extraction_source == "iam":
+        try:
+            # Attempt to extract gcp project ID from gcp service account email
+            gcp_project_id = extracted_value.split('@')[1].split('.')[0]
+            logging.debug(f"Extracted GCP project ID from GCP service account email: {gcp_project_id}")
+        except IndexError as e:
+            logging.error(f"Failed to extract GCP project ID from service account email: {extracted_value}. Error: {e}")
+            raise ValueError(f"Invalid GCP service account email format: {extracted_value}") from e
+
+        body: akeyless.CreateAuthMethodGCP = akeyless.CreateAuthMethodGCP(
+            token=token,
+            bound_projects=[gcp_project_id],
+            bound_service_accounts=[extracted_value],
+            name=auth_method_name,
+            type=extraction_source
+        )
     
     logging.debug(f"Creating Akeyless GCP authentication method with the following parameters: {body.to_str()}")
 
@@ -233,7 +285,7 @@ def create_gcp_cloud_auth_method() -> str:
         return api_response.access_id
     except ApiException as e:
         # Log an error if the API call fails
-        logging.error("Exception when calling V2Api->create_auth_method_gcp: %s\n" % e)
+        logging.error(f"Exception when calling V2Api->create_auth_method_gcp: {e}")
         raise
 
 
