@@ -6,12 +6,12 @@
     "configurations": [
         
         {
-            "name": "Python: Streamlit App",
+            "name": "Python: Chainlit App",
             "type": "python",
             "request": "launch",
-            "program": "/Users/chrisgruel/miniconda3/envs/heimdal/bin/streamlit",
+            "program": "/Users/chrisgruel/miniconda3/envs/heimdal/bin/chainlit",
             "console": "integratedTerminal",
-            "args": ["run", "streamlit_app.py"],
+            "args": ["run", "chainlit_app.py"],
             "justMyCode": true
         }
     ]

@@ -1,13 +1,17 @@
 from heimdal.tools.utility_tools.kubernetes_operations import can_i_deploy_into_namespace, deploy_akeyless_gateway, fetch_service_account_info, generate_k8s_secret_from_literal_values, get_deployed_helm_releases
 from langgraph.graph import StateGraph, END
+from langgraph.pregel import Pregel
 from langgraph.prebuilt import ToolInvocation
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+from chainlit.playground.config import add_llm_provider
 from langchain_core.messages import ToolMessage
 import json
 from langchain_core.messages import BaseMessage
+from langchain.schema.output_parser import StrOutputParser
 from pyhelm3 import Client
 from typing import Callable, List, TypedDict, Sequence
+from langchain.tools import BaseTool
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import (
     ChatPromptTemplate,
@@ -16,7 +20,7 @@ from langchain_core.prompts import (
 from langchain_core.utils.function_calling import convert_to_openai_function
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langgraph.prebuilt import ToolExecutor
-
+from chainlit.playground.providers.langchain import LangchainGenericProvider
 from langchain.tools import StructuredTool
 from langchain.pydantic_v1 import BaseModel, Field
 from dotenv import load_dotenv
@@ -25,6 +29,8 @@ import logging
 import os
 import json
 import asyncio
+import chainlit as cl
+from chainlit.sync import run_sync
 from heimdal.tools.llm_tools.cloud_detection import detect_cloud_provider
 from heimdal.tools.utility_tools.akeyless_api_operations import check_if_akeyless_auth_method_exists_from_list_auth_methods, create_akeyless_api_key_auth_method, create_aws_cloud_auth_method, create_azure_cloud_auth_method, create_gcp_cloud_auth_method, validate_akeyless_token
 logging.basicConfig(level=logging.INFO)
@@ -183,7 +189,7 @@ def gcp_auth_method_creator_tool() -> str:
 gcp_auth_method_creator = StructuredTool.from_function(
     func=gcp_auth_method_creator_tool,
     name="GCP_Auth_Method_Creator",
-    description="Create an GCP authentication method in Akeyless. Only create this if the cloud service provider is known to be GCP. If the cloud service provider is not GCP then DO NOT create this authentication method.",
+    description="Create an GCP authentication method in Akeyless. Only create this if the cloud service provider is known to be GCP. If the cloud service provider is not GCP then DO NOT create this authentication method. If this tool returns a conflict error about the name of the authentication method, then choose a different name and try again.",
     return_direct=False,
 )
 
@@ -244,7 +250,7 @@ class HelmChartDeployment(BaseModel):
     namespace: str = Field(
         description="Namespace in which the chart will be deployed")
     auth_method_id: str = Field(
-        description="Akeyless access id for auth method")
+        description="Akeyless access id for auth method akeyless_access_id")
     release_name: str = Field(
         default="gw",
         description="Optional: The release name for the Helm chart. Defaults to 'gw' if not provided.")
@@ -279,13 +285,18 @@ helm_chart_deployer = StructuredTool.from_function(
     return_direct=False,
 )
 
-
-def can_i_deploy_into_namespace_tool(namespace: str) -> str:
+@cl.step(
+    name="Check for deployment permission",
+    type="tool",
+    show_input=True,
+    language="json"
+)
+async def can_i_deploy_into_namespace_tool(namespace: str) -> str:
     """
     This tool is used to check if the bot can deploy into the namespace.
     It makes an external API call to check if the bot has the necessary permissions.
     """
-    hasDeploymentPermission = can_i_deploy_into_namespace(namespace)
+    hasDeploymentPermission = cl.run_sync(can_i_deploy_into_namespace(namespace))
     return json.dumps({"can_i_deploy": hasDeploymentPermission})
 
 
@@ -384,9 +395,39 @@ check_if_akeyless_auth_method_exists = StructuredTool.from_function(
     return_direct=False,
 )
 
+class HumanInputChainlit(BaseTool):
+    """Tool that adds the capability to ask user for input."""
+
+    name = "human"
+    description = (
+        "You can ask a human for guidance when you think you "
+        "got stuck or you are not sure what to do next. "
+        "The input should be a question for the human."
+    )
+
+    def _run(
+        self,
+        query: str,
+        run_manager=None,
+    ) -> str:
+        """Use the Human input tool."""
+
+        res = run_sync(cl.AskUserMessage(content=query).send())
+        return res["content"]
+
+    async def _arun(
+        self,
+        query: str,
+        run_manager=None,
+    ) -> str:
+        """Use the Human input tool."""
+        res = await cl.AskUserMessage(content=query).send()
+        return res["output"]
+
 
 
 tools = [
+    HumanInputChainlit(),
     get_pod_namespace_and_service_account,
     can_i_deploy_into_namespace_checker,
     cloud_service_detector,
@@ -396,7 +437,7 @@ tools = [
     # api_key_auth_method_creator,
     # kubernetes_secret_deployer,
     helm_chart_deployer,
-    get_list_of_helm_releases_in_namespace,
+    # get_list_of_helm_releases_in_namespace,
     get_akeyless_token_validation_information,
     check_if_akeyless_auth_method_exists
 ]
@@ -415,7 +456,7 @@ class Response(BaseModel):
     can_i_deploy: str = Field(
         description="Can the bot deploy into the namespace?")
     akeyless_access_id: str = Field(
-        description="Akeyless access id for auth method")
+        description="Akeyless access id for auth method (akeyless_access_id)")
     release_name: str = Field(description="Name of the release")
     revision_namespace: str = Field(description="Namespace of the release")
     revision: int = Field(description="Revision number")
@@ -428,14 +469,26 @@ prompt = ChatPromptTemplate.from_messages(
             "system",
             "You are Heimdal, a prototype AI-powered assistant designed to help deploy the Akeyless Gateway into a kubernetes cluster. You have access to a variety of tools to help you accomplish this task.",
         ),
-        MessagesPlaceholder(variable_name="messages", optional=True),
+        MessagesPlaceholder(variable_name="messages"),
     ]
 )
 
 # Create the OpenAI LLM
 llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, streaming=True)
 
-# demo_ephemeral_chat_history_for_chain = ChatMessageHistory()
+# Add the LLM provider
+add_llm_provider(
+    LangchainGenericProvider(
+        # It is important that the id of the provider matches the _llm_type
+        id=llm._llm_type,
+        # The name is not important. It will be displayed in the UI.
+        name="GPT 3.5 Turbo",
+        # This should always be a Langchain llm instance (correctly configured)
+        llm=llm,
+        # If the LLM works with messages, set this to True
+        is_chat=True,
+    )
+)
 
 # Create the tools to bind to the model
 tools = [convert_to_openai_function(t) for t in tools]
@@ -474,32 +527,58 @@ def call_model(state):
 
 
 # Define the function to execute tools
-def call_tool(state):
+async def call_tool(state):
     messages = state["messages"]
     # We know the last message involves at least one tool call
     last_message = messages[-1]
+    
+    # get UI task list from user state
+    task_list = app_interactor.task_list
+    
+    task_list.status = "Running..."
 
     # We loop through all tool calls and append the message to our message log
     for tool_call in last_message.additional_kwargs["tool_calls"]:
+        
+        tool_call_name = tool_call["function"]["name"]
+        tool_call_name_without_underscores = tool_call_name.replace("_", " ")
+        tool_call_args = tool_call["function"]["arguments"]
+        task = app_interactor.chainlit.Task(tool_call_name_without_underscores, app_interactor.chainlit.TaskStatus.RUNNING)
+        await task_list.add_task(task)
+        
+        
         action = ToolInvocation(
             tool=tool_call["function"]["name"],
             tool_input=json.loads(tool_call["function"]["arguments"]),
             id=tool_call["id"],
         )
+        
+        if tool_call_args:
+            message_id = await app_interactor.chainlit.Message(content=tool_call_args).send()
+            task.forId = message_id
 
+        # Update the task list in the interface
+        await task_list.send()
+        
         # We call the tool_executor and get back a response
         response = tool_executor.invoke(action)
         # We use the response to create a FunctionMessage
         function_message = ToolMessage(
             content=str(response), name=action.tool, tool_call_id=tool_call["id"]
         )
+        
+        task.status = app_interactor.chainlit.TaskStatus.COMPLETED
 
         # Add the function message to the list
         messages.append(function_message)
 
-    # We return a list, because this will get added to the existing list
-
-    return {"messages": messages}
+    task_list.status = "Completed"
+    await task_list.send()
+    
+    return {
+        "messages": messages, 
+        "task_list": task_list
+        }
 
 
 # Initialize a new graph
@@ -528,18 +607,28 @@ graph.add_edge("action", "agent")
 # memory = SqliteSaver.from_conn_string(":memory:")
 
 # Compile the workflow
-app = graph.compile()
+# app = graph.compile()
 
 
 class AppInteractor:
-    def __init__(self, app, llm, tools):
-        self.app = app
-        self.llm = llm
-        self.tools = tools
+    def __init__(self, graph: StateGraph, llm: ChatOpenAI, tools: List[StructuredTool]):
+        self.graph: StateGraph = graph
+        self.llm: ChatOpenAI = llm
+        self.tools: List[StructuredTool] = tools
 
+    def add_callback_handler_and_compile(self, chainlit: cl, callback_handler: Callable = None, task_list: cl.TaskList = None) -> None:
+        if callback_handler is not None:
+            self.llm.callbacks = [callback_handler]
+        # Set chainlit ui variable
+        self.chainlit = chainlit
+        
+        self.task_list = task_list
+        # Compile the workflow
+        self.app: Pregel = self.graph.compile()
 
-app_interactor = AppInteractor(app, llm, tools)
+app_interactor = AppInteractor(graph, llm, tools)
 
+# app_interactor.add_callback_handler_and_compile()
 # inputs = {
 #     "messages": [
 #         HumanMessage(
@@ -547,7 +636,7 @@ app_interactor = AppInteractor(app, llm, tools)
 #         )
 #     ]
 # }
-# for output in app.with_config({"run_name": "Heimdal with Tools", "recursion_limit": 50}).stream(inputs):
+# for output in app_interactor.app.with_config({"run_name": "Heimdal with Tools", "recursion_limit": 50}).stream(inputs):
 #     # stream() yields dictionaries with output keyed by node name
 #     for key, value in output.items():
 #         print(f"Output from node '{key}':")
