@@ -24,7 +24,7 @@ api = akeyless.V2Api(api_client)
 # Retrieve the Akeyless token from the environment variables
 
 
-def extract_aws_account_id(cloud_id_b64: str) -> str:
+async def extract_aws_account_id(cloud_id_b64: str) -> str:
     """
     This function extracts the AWS account ID from the base64 encoded cloud_id.
 
@@ -65,7 +65,7 @@ def extract_aws_account_id(cloud_id_b64: str) -> str:
     logging.debug(f"AWS Account ID: {account_id}")
     return account_id
 
-def extract_gcp_project_id(cloud_id_b64: str) -> Tuple[str, str]:
+async def extract_gcp_project_id(cloud_id_b64: str) -> Tuple[str, str]:
     """
     This function extracts the GCP project ID or the full GCP service account email address from the base64 encoded cloud_id and identifies if the project ID or the service account email was extracted through GCE or GKE workload identity (iam).
     It supports both GCE metadata and GKE workload identity formats.
@@ -116,7 +116,7 @@ def extract_gcp_project_id(cloud_id_b64: str) -> Tuple[str, str]:
         logging.error(f"Error extracting GCP project ID or the full GCP service account email address: {e}")
         raise
 
-def extract_azure_tenant_id(cloud_id_b64: str) -> str:
+async def extract_azure_tenant_id(cloud_id_b64: str) -> str:
     """
     This function extracts the Azure tenant ID from the base64 encoded cloud_id.
 
@@ -139,7 +139,7 @@ def extract_azure_tenant_id(cloud_id_b64: str) -> str:
     return azure_tenant_id
 
 
-def _create_auth_method_name(cloud_service_provider: str, auth_method_name_template: str = '/Heimdal AI Created {cloud_service_provider} Auth Method') -> str:
+async def _create_auth_method_name(cloud_service_provider: str, auth_method_name_template: str = '/Heimdal AI Created {cloud_service_provider} Auth Method') -> str:
     """
     Generates a formatted authentication method name for a given cloud service provider.
 
@@ -163,7 +163,7 @@ def _create_auth_method_name(cloud_service_provider: str, auth_method_name_templ
     return auth_method_name
 
 
-def create_aws_cloud_auth_method() -> str:
+async def create_aws_cloud_auth_method() -> str:
     """
     This function creates an AWS IAM authentication method in Akeyless.
 
@@ -195,7 +195,7 @@ def create_aws_cloud_auth_method() -> str:
         raise
 
 
-def create_azure_cloud_auth_method() -> str:
+async def create_azure_cloud_auth_method() -> str:
     """
     This function creates an Azure AD authentication method in Akeyless.
 
@@ -227,7 +227,7 @@ def create_azure_cloud_auth_method() -> str:
         raise
 
 
-def create_gcp_cloud_auth_method() -> str:
+async def create_gcp_cloud_auth_method() -> str:
     """
     This function creates a GCP authentication method in Akeyless.
 
@@ -289,7 +289,7 @@ def create_gcp_cloud_auth_method() -> str:
         raise
 
 
-def create_akeyless_api_key_auth_method() -> str:
+async def create_akeyless_api_key_auth_method() -> str:
     """
     This function creates an Akeyless API Key authentication method.
 
@@ -321,7 +321,7 @@ def create_akeyless_api_key_auth_method() -> str:
         raise
 
 
-def create_akeyless_cloud_auth_method(cloud_service_provider: str) -> Tuple[str, Union[CreateAuthMethodAWSIAMOutput, CreateAuthMethodGCPOutput, CreateAuthMethodAzureADOutput]]:
+async def create_akeyless_cloud_auth_method(cloud_service_provider: str) -> Tuple[str, Union[CreateAuthMethodAWSIAMOutput, CreateAuthMethodGCPOutput, CreateAuthMethodAzureADOutput]]:
     """
     This function creates an Akeyless cloud authentication method based on the cloud service provider.
 
@@ -387,7 +387,7 @@ def create_akeyless_cloud_auth_method(cloud_service_provider: str) -> Tuple[str,
 
 
 
-def validate_akeyless_token(token: str) -> ValidateTokenOutput:
+async def validate_akeyless_token(token: str) -> ValidateTokenOutput:
     """
     This function validates the Akeyless token and returns the details of the validation result.
 

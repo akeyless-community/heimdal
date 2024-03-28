@@ -30,7 +30,7 @@ spec:
                 secretKeyRef:
                   key: OPENAI_ORGANIZATION
                   name: heimdal-creds
-          image: devorbitus/heimdal:2.0.40
+          image: devorbitus/heimdal:2.0.41
           imagePullPolicy: IfNotPresent
           name: heimdal
           resources:

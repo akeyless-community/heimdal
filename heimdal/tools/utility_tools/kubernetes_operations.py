@@ -9,7 +9,7 @@ from kubernetes import client, config, config as k8s_config
 logger = logging.getLogger(__name__)
 
 
-def generate_k8s_secret_from_literal_values(secret_name: str, namespace: str, literal_values: dict) -> None:
+async def generate_k8s_secret_from_literal_values(secret_name: str, namespace: str, literal_values: dict) -> None:
     """
     Generates a Kubernetes secret from literal values.
 
@@ -42,7 +42,7 @@ def generate_k8s_secret_from_literal_values(secret_name: str, namespace: str, li
         raise
 
 
-def generate_k8s_secret_from_literal_values(secret_name: str, namespace: str, literal_values: dict) -> str:
+async def generate_k8s_secret_from_literal_values(secret_name: str, namespace: str, literal_values: dict) -> str:
     """
     Generates a Kubernetes secret from literal values.
 
@@ -78,7 +78,7 @@ def generate_k8s_secret_from_literal_values(secret_name: str, namespace: str, li
         logger.error(f"Error generating Kubernetes secret: {e}")
         raise
 
-def load_kubernetes_config() -> Tuple[str, client.Configuration]:
+async def load_kubernetes_config() -> Tuple[str, client.Configuration]:
     """
     Tries to load the in-cluster configuration, and if it fails, tries to load the kubeconfig file.
     
@@ -105,7 +105,7 @@ def load_kubernetes_config() -> Tuple[str, client.Configuration]:
     return config_type, k8s_config
 
 
-def decode_k8s_jwt_payload(jwt_token: str) -> Union[dict, None]:
+async def decode_k8s_jwt_payload(jwt_token: str) -> Union[dict, None]:
     """Decodes the payload from a K8s JWT token."""
     logger.info("Decoding JWT token payload...")
     try:
@@ -127,7 +127,7 @@ def decode_k8s_jwt_payload(jwt_token: str) -> Union[dict, None]:
         return None
 
 
-def _handle_error(error: ToolException) -> str:
+async def _handle_error(error: ToolException) -> str:
     return (
         "The following errors occurred during tool execution:"
         + error.args[0]
@@ -135,7 +135,7 @@ def _handle_error(error: ToolException) -> str:
     )
 
 
-def fetch_service_account_info() -> str:
+async def fetch_service_account_info() -> str:
     """
     This function fetches the service account details from the Kubernetes environment.
     It reads the namespace and service account name from the respective files in the Kubernetes secrets directory.
@@ -178,7 +178,7 @@ def fetch_service_account_info() -> str:
     return json.dumps(result)
 
 
-def generate_default_deploy_role_manifest(namespace: str, service_account_name: str) -> dict:
+async def generate_default_deploy_role_manifest(namespace: str, service_account_name: str) -> dict:
     """
     Generates a role manifest with default resources and verbs for deploying to a namespace.
     This is a convenience function that provides a default set of permissions typically needed for deployments.
@@ -188,7 +188,7 @@ def generate_default_deploy_role_manifest(namespace: str, service_account_name: 
     return generate_role_manifest(namespace, service_account_name, resources, verbs)
 
 
-def generate_role_manifest(namespace: str, service_account_name: str, resources: list, verbs: list) -> dict:
+async def generate_role_manifest(namespace: str, service_account_name: str, resources: list, verbs: list) -> dict:
     logger.debug("Generating role manifest...")
 
     # Define the permissions required in the Role
@@ -216,7 +216,7 @@ def generate_role_manifest(namespace: str, service_account_name: str, resources:
     logger.info("Role manifest created successfully.")
     return role_manifest
 
-def can_i_deploy_into_namespace(namespace: str) -> bool:
+async def can_i_deploy_into_namespace(namespace: str) -> bool:
     resource_attributes = {
         "secrets": ["create", "get", "list", "watch", "update", "patch", "delete"],
         "services": ["create", "get", "list", "watch", "update", "patch", "delete"],
@@ -226,7 +226,7 @@ def can_i_deploy_into_namespace(namespace: str) -> bool:
 
 
 
-def can_i(namespace: str, resource_attributes: dict) -> bool:
+async def can_i(namespace: str, resource_attributes: dict) -> bool:
     """
     This function checks if the current service account has the specified permissions in the given namespace.
     
@@ -289,7 +289,7 @@ def can_i(namespace: str, resource_attributes: dict) -> bool:
 # Check if can create and delete pods and services
 # print(can_i('default', {'verb': ['create', 'delete'], 'resource': ['pods', 'services']}))
 
-def make_post_request(url: str, data: dict, headers: dict, ca_cert: str) -> bool:
+async def make_post_request(url: str, data: dict, headers: dict, ca_cert: str) -> bool:
     """
     This function makes a POST request to the specified URL with the provided data, headers, and CA certificate.
     It then parses the response and returns a boolean value based on the status code and the 'allowed' status in the response.
@@ -318,7 +318,7 @@ def make_post_request(url: str, data: dict, headers: dict, ca_cert: str) -> bool
         return False
 
 
-def create_temp_helm_values(values_dict: dict, file_extension: str = '.yaml', debug: bool = False) -> str:
+async def create_temp_helm_values(values_dict: dict, file_extension: str = '.yaml', debug: bool = False) -> str:
     """
     Create a temporary file for Helm chart values.
 
@@ -343,14 +343,14 @@ def create_temp_helm_values(values_dict: dict, file_extension: str = '.yaml', de
         raise
 
 
-def deploy_helm_chart_with_values(release_name: str, namespace: str, chart_url: str, chart_version: str, values_dict: dict, debug: bool = False) -> str:
+async def deploy_helm_chart_with_values(release_name: str, namespace: str, chart_url: str, chart_version: str, values_dict: dict, debug: bool = False) -> str:
     """
     Deploy a Helm chart into a Kubernetes cluster using Helm 3 with the specified values.
     """
     return _deploy_helm_chart("gw",namespace,chart_url)
 
 
-def _deploy_helm_chart(release_name, namespace, chart_url, chart_version, values_file=None) -> str:
+async def _deploy_helm_chart(release_name, namespace, chart_url, chart_version, values_file=None) -> str:
     """
     Deploy a Helm chart into a Kubernetes cluster using Helm 3.
 
@@ -383,7 +383,7 @@ def _deploy_helm_chart(release_name, namespace, chart_url, chart_version, values
         print(f"Failed to install chart {release_name}.\nError: {e.stderr}")
         raise
 
-def deploy_gateway_helm_chart(auth_method_id: str, namespace: str) -> str:
+async def deploy_gateway_helm_chart(auth_method_id: str, namespace: str) -> str:
     """
     This function adds the Akeyless Helm repository, updates it, and installs the Akeyless API Gateway chart.
     It sets the Akeyless user authentication admin access ID using the provided auth_method_id.
@@ -483,7 +483,7 @@ async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, r
 
 
 
-def get_deployed_helm_releases(namespace: str) -> List[str]:
+async def get_deployed_helm_releases(namespace: str) -> List[str]:
     """
     This function uses the pyhelm3 library to find out what Helm releases have been deployed into a namespace.
     It returns a list of release names that are currently deployed in the given namespace.

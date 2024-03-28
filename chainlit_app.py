@@ -1,3 +1,4 @@
+import datetime
 from langchain_core.tools import tool
 from typing import Annotated
 from langchain_experimental.utilities import PythonREPL
@@ -10,12 +11,13 @@ from langchain_core.messages import BaseMessage
 from langchain.chains.llm_math.base import LLMMathChain
 import operator
 import chainlit as cl
-from chainlit.sync import run_sync
+from chainlit.input_widget import TextInput
 from langchain_core.agents import AgentFinish
 from langgraph.prebuilt.tool_executor import ToolExecutor
 from langchain.agents import create_json_chat_agent, Tool
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, PromptTemplate, MessagesPlaceholder, HumanMessagePromptTemplate
 from langchain.agents import create_json_chat_agent
+from akeyless.models import ValidateTokenOutput
 import json
 from langchain_core.tools import BaseTool
 import os
@@ -32,6 +34,8 @@ from langchain_core.messages import (
 )
 import logging
 from dotenv import load_dotenv
+
+from heimdal.tools.utility_tools.akeyless_api_operations import validate_akeyless_token
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 # Load .env file
@@ -46,6 +50,8 @@ os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
 os.environ["LANGCHAIN_PROJECT"] = "Demos"
+
+DEPLOY_GATEWAY_COMMAND = "Please check what the kubernetes namespace and service account are for this bot to deploy the akeyless gateway helm chart. Please make sure the bot has permission to deploy the helm chart into this namespace. Please figure out the cloud service provider where this bot is installed and create the appropriate authentication method. Please deploy the helm chart using the authentication method access ID. Once the helm chart is deployed, please return all the details about everything created."
 
 class AgentState(TypedDict):
     input: str
@@ -90,8 +96,95 @@ class HumanInputChainlit(BaseTool):
             return "Error: Failed to get human input."
 
 
+@cl.action_callback("Approve the Scanning of the environment and install the Akeyless Gateway")
+async def on_action(action):
+    # Add the DEPLOY_GATEWAY_COMMAND to the message history as if the user sent it
+    message = cl.Message(
+        content=DEPLOY_GATEWAY_COMMAND,
+        type="user_message"
+    )
+    await message.send()
+    await main(message)
+    # Remove the action button from the chatbot user interface
+    await action.remove()
+
+
+@cl.on_settings_update
+async def setup_agent(settings):
+    """
+    Handles the event when chat settings are updated. Specifically, it checks for the 'akeyless_token' in the settings,
+    validates it, and sets it as an environment variable if valid.
+
+    Args:
+        settings (dict): A dictionary containing the updated settings.
+    """
+    # Debug statement to log the settings update event and its content
+    cl.logger.debug(f"on_settings_update triggered with settings: {settings}")
+    
+    # Extract the 'akeyless_token' from the settings
+    akeyless_token = settings.get("akeyless_token", os.getenv("AKEYLESS_TOKEN", ""))
+    
+    # Prepare the error message in case the token does not meet the requirements
+    token_error_msg = cl.Message(content="The Akeyless Token must be set within chat settings and it must start with 't-'")
+    
+    # Validate the 'akeyless_token' to ensure it starts with 't-'
+    if not akeyless_token.startswith("t-"):
+        # If the token is invalid, send the error message to the user
+        await token_error_msg.send()
+        # Log the event of an invalid token being provided
+        cl.logger.info("Provided Akeyless Token is invalid. It must start with 't-'.")
+    else:
+        os.environ["AKEYLESS_TOKEN"] = ""
+        validation_result: ValidateTokenOutput;
+        
+        try:
+            validation_result = await validate_akeyless_token(akeyless_token)
+        except Exception as e:
+            logging.error(f"Failed to validate Akeyless token: {str(e)}")
+            return "Error: Failed to validate Akeyless token."
+        
+        if validation_result.is_valid:
+            # If the token is valid, set it as an environment variable
+            os.environ["AKEYLESS_TOKEN"] = akeyless_token
+            # the date looks like "2024-03-29 06:34:40 +0000 UTC"
+            expiration_date_str = validation_result.expiration
+            expiration_date = datetime.datetime.strptime(expiration_date_str, "%Y-%m-%d %H:%M:%S %z %Z")
+            current_date = datetime.datetime.now(datetime.timezone.utc)
+            time_until_expiration = expiration_date - current_date
+            hours, remainder = divmod(time_until_expiration.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            # Handle calculating the expiration in UTC
+            expiration_date_str = expiration_date.strftime("%Y-%m-%d %H:%M:%S %Z")
+            
+            # Create an action button to scan the environment and deploy the Akeyless Gateway
+            actions = [
+                cl.Action(
+                    name="Approve the Scanning of the environment and install the Akeyless Gateway",
+                    description="Approve the Scanning of the environment and install the Akeyless Gateway", 
+                    value=akeyless_token)
+            ]
+            
+            await cl.Message(content=f"A valid Akeyless Token was set successfully!\n\nThe token will expire in {hours} hours and {minutes} minutes or at {expiration_date_str}.\n\nWould you like to approve the scanning of the environment and install the Akeyless Gateway?\n", actions=actions).send()
+        else:
+            await cl.Message(content="The provided Akeyless Token is not valid. Please try again.").send()
+        
+        # Log the successful setting of the Akeyless Token
+        cl.logger.info("Akeyless Token set successfully as an environment variable.")
+
+
 @cl.on_chat_start
 async def start():
+    await cl.ChatSettings(
+        [
+            TextInput(
+                id="akeyless_token",
+                label="Akeyless Token",
+                type="textinput",
+                placeholder="t-fds023fsfs33...",
+                description="You can retrieve the token from the Akeyless web console by clicking the top right hand corner down arrow and then choosing 'Copy token'")
+        ]
+    ).send()
+    
     # Create a new instance of the chat memory
     chat_history = ConversationBufferMemory(return_messages=True)
     cl.user_session.set("chat_history", chat_history)
@@ -247,7 +340,7 @@ async def start():
     
     cl.user_session.set("runner", app)
 
-    
+
 @cl.on_message
 async def main(message: cl.Message):
     chat_history = cl.user_session.get("chat_history")  # type: ConversationBufferMemory
