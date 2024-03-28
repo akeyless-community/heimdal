@@ -247,10 +247,6 @@ async def start():
     
     cl.user_session.set("runner", app)
 
-    # inputs = {"input": "what is the weather in taiwan", "chat_history": []}
-    # result = app.invoke(inputs)
-
-    # print(result["agent_outcome"].return_values["output"])
     
 @cl.on_message
 async def main(message: cl.Message):
@@ -258,7 +254,7 @@ async def main(message: cl.Message):
     runner = cl.user_session.get("runner")  # type: CompiledGraph
     
     messages = await chat_history.chat_memory.aget_messages()
-    print(messages)
+    # print(messages)
     inputs = {
         "input": message.content,
         "chat_history": messages,
@@ -267,7 +263,7 @@ async def main(message: cl.Message):
     # Create placeholder for response message from AI
     msg = cl.Message(content="")
     
-    answer_prefix_tokens=["FINAL","ANSWER"]
+    answer_prefix_tokens=["Final Answer"]
     
     # Create a new instance of the RunnableConfig
     config = RunnableConfig(
