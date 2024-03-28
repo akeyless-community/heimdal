@@ -11,7 +11,7 @@ resources:
   # - deployment/role-binding.yaml
   # Uncomment the following line to enable cluster role binding
   #   NOTE: you can comment out the role and rolebinding if you instead use the cluster role binding
-  - deployment/cluster-role-binding.yaml
+  # - deployment/cluster-role-binding.yaml
   - deployment/service.yaml
   # - deployment/ingress.yaml
   - deployment/deployment.yaml
