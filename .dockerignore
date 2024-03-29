@@ -1,0 +1,32 @@
+# Ignore .git directory
+.git
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environment directory
+venv/
+
+# Ignore IDE-specific files
+.vscode/
+.idea/
+
+# Ignore local development files
+*.env
+*.log
+*.sqlite3
+*.sqlite3-journal
+
+# Ignore build artifacts and distribution files
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+
+# Ignore any other files or directories specific to your project
+# that should not be included in the Docker image
+# End Generation Here

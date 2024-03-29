@@ -173,7 +173,7 @@ async def create_aws_cloud_auth_method() -> str:
     # Get the Akeyless token from the environment variables
     token: str = os.getenv('AKEYLESS_TOKEN')
     # Create the authentication method name for AWS
-    auth_method_name: str = _create_auth_method_name("AWS")
+    auth_method_name: str = await _create_auth_method_name("AWS")
     logging.debug(f"Auth method name: {auth_method_name}")
     # Generate the cloud ID for AWS
     cloud_id: str = cloud_id_generator.generate()
@@ -205,7 +205,7 @@ async def create_azure_cloud_auth_method() -> str:
     # Get the Akeyless token from the environment variables
     token = os.getenv('AKEYLESS_TOKEN')
     # Create the authentication method name for Azure
-    auth_method_name = _create_auth_method_name("AZURE")
+    auth_method_name = await _create_auth_method_name("AZURE")
     logging.debug(f"Auth method name: {auth_method_name}")
     # Generate the cloud ID for Azure
     cloud_id: str = cloud_id_generator.generateAzure()
@@ -237,7 +237,7 @@ async def create_gcp_cloud_auth_method() -> str:
     # Get the Akeyless token from the environment variables
     token = os.getenv('AKEYLESS_TOKEN')
     # Create the authentication method name for GCP
-    auth_method_name = _create_auth_method_name("GCP")
+    auth_method_name = await _create_auth_method_name("GCP")
     logging.debug(f"Auth method name: {auth_method_name}")
     
     # Generate the cloud ID for GCP
@@ -247,7 +247,7 @@ async def create_gcp_cloud_auth_method() -> str:
     # Extract the GCP project ID from the cloud ID
     gcp_project_id: str
     extraction_source: str
-    extracted_value, extraction_source = extract_gcp_project_id(cloud_id)
+    extracted_value, extraction_source = await extract_gcp_project_id(cloud_id)
     logging.debug(f"GCP ID: {extracted_value}")
     logging.debug(f"GCP Project ID extraction source: {extraction_source}")
     
@@ -300,7 +300,7 @@ async def create_akeyless_api_key_auth_method() -> str:
         Tuple[str, CreateAuthMethodOutput]: The access ID of the created authentication method and the API response.
     """
     token = os.getenv('AKEYLESS_TOKEN')
-    auth_method_name = _create_auth_method_name("API Key")
+    auth_method_name = await _create_auth_method_name("API Key")
     logging.info(f"Creating Akeyless API Key Auth Method: {auth_method_name}")
 
     # Create the body for the API request
@@ -338,7 +338,7 @@ async def create_akeyless_cloud_auth_method(cloud_service_provider: str) -> Tupl
     auth_method_name: str = f'/Heimdal AI Created {cloud_service_provider.upper()} Auth Method'
 
     if cloud_service_provider == 'aws':
-        aws_account_id: str = extract_aws_account_id(cloud_id)
+        aws_account_id: str = await extract_aws_account_id(cloud_id)
         body: akeyless.CreateAuthMethodAWSIAM = akeyless.CreateAuthMethodAWSIAM()
         body.token = token
         body.bound_aws_account_id = aws_account_id
@@ -353,7 +353,7 @@ async def create_akeyless_cloud_auth_method(cloud_service_provider: str) -> Tupl
             logging.error("Exception when calling V2Api->create_auth_method_awsiam: %s\n" % e)
             raise
     elif cloud_service_provider == 'gcp':
-        gcp_project_id: str = extract_gcp_project_id(cloud_id)
+        gcp_project_id: str = await extract_gcp_project_id(cloud_id)
         body: akeyless.CreateAuthMethodGCP = akeyless.CreateAuthMethodGCP()
         body.token = token
         body.bound_gcp_project_id = gcp_project_id
@@ -368,7 +368,7 @@ async def create_akeyless_cloud_auth_method(cloud_service_provider: str) -> Tupl
             logging.error("Exception when calling V2Api->create_auth_method_gcp: %s\n" % e)
             raise
     elif cloud_service_provider == 'azure':
-        azure_tenant_id: str = extract_azure_tenant_id(cloud_id)
+        azure_tenant_id: str = await extract_azure_tenant_id(cloud_id)
         body: akeyless.CreateAuthMethodAzure = akeyless.CreateAuthMethodAzure()
         body.token = token
         body.bound_azure_tenant_id = azure_tenant_id

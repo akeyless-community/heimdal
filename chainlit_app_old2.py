@@ -1,7 +1,8 @@
+import asyncio
 import datetime
-from langchain import hub
 from langchain_core.tools import tool
-from typing import Annotated, Callable, Sequence
+from typing import Annotated, Callable
+from langchain_experimental.utilities import PythonREPL
 from langchain_openai import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from typing import TypedDict, Annotated, List, Union
@@ -12,17 +13,12 @@ from langchain.chains.llm_math.base import LLMMathChain
 from langchain.tools import StructuredTool
 import operator
 import chainlit as cl
-from chainlit.playground.config import add_llm_provider
-from chainlit.playground.providers.langchain import LangchainGenericProvider
-from langchain_core.utils.function_calling import convert_to_openai_function
-from langchain_core.runnables import RunnablePassthrough
 from chainlit.input_widget import TextInput
 from langchain_core.agents import AgentFinish
 from langgraph.prebuilt.tool_executor import ToolExecutor
 from langchain.agents import create_json_chat_agent, Tool
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, PromptTemplate, MessagesPlaceholder, HumanMessagePromptTemplate
-from langchain.agents.agent import AgentExecutor
-from langchain.agents import create_openai_functions_agent
+from langchain.agents import create_json_chat_agent
 from akeyless.models import ValidateTokenOutput
 import json
 from langchain_core.tools import BaseTool
@@ -30,7 +26,6 @@ import os
 from typing import List, Union
 from langgraph.graph import END, StateGraph
 from langgraph.graph.graph import CompiledGraph
-from langgraph.prebuilt import ToolInvocation
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -61,22 +56,22 @@ os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
 os.environ["LANGCHAIN_PROJECT"] = "Demos"
 
-DEPLOY_GATEWAY_COMMAND = """
-Check what the kubernetes namespace and service account are for me to deploy the akeyless gateway helm chart
-Make sure I have permission to deploy the helm chart into this namespace
-Figure out the cloud service provider where I am installed and create the appropriate authentication method
-Deploy the helm chart using the authentication method access ID
-Once the helm chart is deployed, return all the details about everything created
-"""
+DEPLOY_GATEWAY_COMMAND = "Please check what the kubernetes namespace and service account are for this bot to deploy the akeyless gateway helm chart. Please make sure the bot has permission to deploy the helm chart into this namespace. Please figure out the cloud service provider where this bot is installed and create the appropriate authentication method. Please deploy the helm chart using the authentication method access ID. Once the helm chart is deployed, please return all the details about everything created."
+
+class AgentState(TypedDict):
+    input: str
+    chat_history: list[BaseMessage]
+    agent_outcome: Union[AgentAction, AgentFinish, None]
+    intermediate_steps: Annotated[list[tuple[AgentAction, str]], operator.add]
 
 class HumanInputChainlit(BaseTool):
     """Tool that adds the capability to ask user for input."""
 
     name = "human"
     description = (
-        "You can ask a human user for guidance or information when you think you "
+        "You can ask a human for guidance or information when you think you "
         "got stuck or you are not sure what to do next. "
-        "The input should be a question for the human user."
+        "The input should be a question for the human."
     )
 
     def _run(
@@ -197,6 +192,18 @@ async def start():
     # Create a new instance of the chat memory
     chat_history = ConversationBufferMemory(return_messages=True)
     cl.user_session.set("chat_history", chat_history)
+
+    repl = PythonREPL()
+    
+    
+
+    chat_model = ChatOpenAI(
+            temperature=0,
+            streaming=True,
+            model="gpt-4-turbo-preview"
+        )
+
+    llm_math_chain = LLMMathChain.from_llm(llm=chat_model, verbose=True)
     
     # Tools Go here
     
@@ -237,7 +244,7 @@ async def start():
         logger.debug("Entering cloud_service_detector_tool")
         try:
             # Detect the cloud service provider
-            cloud_service_provider: str = detect_cloud_provider()
+            cloud_service_provider: str = await detect_cloud_provider()
             logger.debug(
                 f"Detected cloud service provider: {cloud_service_provider}")
             return json.dumps({"cloud_service_provider": cloud_service_provider})
@@ -293,7 +300,7 @@ async def start():
         This tool is used to create an AWS authentication method in Akeyless.
         It makes an external API call to create the method.
         """
-        return await create_auth_method('AWS', create_aws_cloud_auth_method)
+        return create_auth_method('AWS', create_aws_cloud_auth_method)
 
 
     aws_auth_method_creator = StructuredTool.from_function(
@@ -310,7 +317,7 @@ async def start():
         This tool is used to create an Azure authentication method in Akeyless.
         It makes an external API call to create the method.
         """
-        return await create_auth_method('Azure', create_azure_cloud_auth_method)
+        return create_auth_method('Azure', create_azure_cloud_auth_method)
 
 
     azure_auth_method_creator = StructuredTool.from_function(
@@ -327,7 +334,7 @@ async def start():
         This tool is used to create an GCP authentication method in Akeyless.
         It makes an external API call to create the method.
         """
-        return await create_auth_method('GCP', create_gcp_cloud_auth_method)
+        return create_auth_method('GCP', create_gcp_cloud_auth_method)
 
 
     gcp_auth_method_creator = StructuredTool.from_function(
@@ -344,7 +351,7 @@ async def start():
         This tool is used to create an Azure authentication method in Akeyless.
         It makes an external API call to create the method.
         """
-        return await create_auth_method('API Key', create_akeyless_api_key_auth_method)
+        return create_auth_method('API Key', create_akeyless_api_key_auth_method)
 
 
     api_key_auth_method_creator = StructuredTool.from_function(
@@ -497,7 +504,8 @@ async def start():
         args_schema=TokenValidation,
         return_direct=False,
     )
-    
+
+
 
     class AkeylessAuthMethodValidation(BaseModel):
         auth_method_name: str = Field(description="The name of the Akeyless authentication method to be validated.")
@@ -529,36 +537,25 @@ async def start():
         args_schema=AkeylessAuthMethodValidation,
         return_direct=False,
     )
-    
-    class Response(BaseModel):
-        """Final answer to the user"""
-        namespace: str = Field(
-            description="Namespace in which the chart was deployed")
-        service_account: str = Field(
-            description="Service account used to deploy the chart")
-        detected_cloud_service_provider: str = Field(
-            description="Detected cloud service provider")
-        can_i_deploy: str = Field(
-            description="Can the bot deploy into the namespace?")
-        akeyless_access_id: str = Field(
-            description="Akeyless access id for auth method (akeyless_access_id)")
-        release_name: str = Field(description="Name of the release")
-        revision_namespace: str = Field(description="Namespace of the release")
-        revision: int = Field(description="Revision number")
-        status: str = Field(description="Status of the release")
 
+    @tool
+    async def python_repl(
+        code: Annotated[str, "The python code to execute to generate your chart."]
+    ):
+        """Use this to execute python code. If you want to see the output of a value,
+        you should print it out with `print(...)`. This is visible to the user."""
+        try:
+            result = repl.run(code)
+        except BaseException as e:
+            return f"Failed to execute. Error: {repr(e)}"
+        return f"Succesfully executed:\n```python\n{code}\n```\nStdout: {result}"
 
-    # Create the OpenAI LLM
-    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, streaming=True)
-    
-    llm_math_chain = LLMMathChain.from_llm(llm=llm, verbose=True)
-    
     tools = [
         HumanInputChainlit(),
         Tool(
             name="Calculator",
             func=llm_math_chain.run,
-            description="useful for when you need to perform math calculations",
+            description="useful for when you need to answer questions about math",
             coroutine=llm_math_chain.arun,
         ),
         get_pod_namespace_and_service_account,
@@ -573,83 +570,111 @@ async def start():
         # get_list_of_helm_releases_in_namespace,
         get_akeyless_token_validation_information,
         check_if_akeyless_auth_method_exists,
+        python_repl
     ]
+
+
+    prompt2 = ChatPromptTemplate(
+        input_variables=["agent_scratchpad", "input", "tool_names", "tools"],
+        input_types={
+            "chat_history": List[
+                Union[
+                    AIMessage,
+                    HumanMessage,
+                    ChatMessage,
+                    SystemMessage,
+                    FunctionMessage,
+                    ToolMessage,
+                ]
+            ],
+            "agent_scratchpad": List[
+                Union[
+                    AIMessage,
+                    HumanMessage,
+                    ChatMessage,
+                    SystemMessage,
+                    FunctionMessage,
+                    ToolMessage,
+                ]
+            ],
+        },
+        messages=[
+            SystemMessagePromptTemplate(
+                prompt=PromptTemplate(
+                    input_variables=[],
+                    template="""Assistant is a large language model trained by OpenAI.\n\nAssistant is designed to be able to assist with a wide range 
+                            of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. 
+                            As a language model, Assistant is able to generate human-like text based on the input it receives, allowing it to engage 
+                            in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
+                            \n\nAssistant is constantly learning and improving, and its capabilities are constantly evolving. It is able to process 
+                            and understand large amounts of text, and can use this knowledge to provide accurate and informative responses to a wide 
+                            range of questions. Additionally, Assistant is able to generate its own text based on the input it receives, allowing it 
+                            to engage in discussions and provide explanations and descriptions on a wide range of topics.
+                            \n\nOverall, Assistant is a powerful system that can help with a wide range of tasks and provide valuable insights and 
+                            information on a wide range of topics. Whether you need help with a specific question or just want to have a conversation
+                            about a particular topic, Assistant is here to assist.""",
+                )
+            ),
+            MessagesPlaceholder(variable_name="chat_history", optional=True),
+            HumanMessagePromptTemplate(
+                prompt=PromptTemplate(
+                    input_variables=["input", "tool_names", "tools"],
+                    template='TOOLS\n------\nAssistant can ask the user to use tools to look up information that may be helpful in answering the users original question. The tools the human can use are:\n\n{tools}\n\nRESPONSE FORMAT INSTRUCTIONS\n----------------------------\n\nWhen responding to me, please output a response in one of two formats:\n\n**Option 1:**\nUse this if you want the human to use a tool.\nMarkdown code snippet formatted in the following schema:\n\n```json\n{{\n    "action": string, \\ The action to take. Must be one of {tool_names}\n    "action_input": string \\ The input to the action\n}}\n```\n\n**Option #2:**\nUse this if you can respond directly to the human after tool execution. Markdown code snippet formatted in the following schema:\n\n```json\n{{\n    "action": "Final Answer",\n    "action_input": string \\ You should put what you want to return to user here\n}}\n```\n\nUSER\'S INPUT\n--------------------\nHere is the user\'s input (remember to respond with a markdown code snippet of a json blob with a single action, and NOTHING else):\n\n{input}',
+
+                )
+            ),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ],
+    )
+
+    agent_runnable = create_json_chat_agent(chat_model, tools, prompt2)
 
     tool_executor = ToolExecutor(tools)
 
-    # Add the LLM provider
-    add_llm_provider(
-        LangchainGenericProvider(
-            # It is important that the id of the provider matches the _llm_type
-            id=llm._llm_type,
-            # The name is not important. It will be displayed in the UI.
-            name="GPT 3.5 Turbo",
-            # This should always be a Langchain llm instance (correctly configured)
-            llm=llm,
-            # If the LLM works with messages, set this to True
-            is_chat=True,
-        )
-    )
+    # @cl.step(type="llm")
+    async def run_agent(data):
+        agent_outcome = agent_runnable.invoke(data)
+        return {"agent_outcome": agent_outcome}
 
-    # Create the tools to bind to the model
-    tools = [convert_to_openai_function(t) for t in tools]
-    # tools.append(convert_to_openai_function(Response))
+    # @cl.step(type="tool")
+    async def execute_tools(data):
+        # current_step = cl.context.current_step
+        agent_action = data['agent_outcome']
+        tool = agent_action.tool
+        tool_input = agent_action.tool_input
+        
+        if tool != "human":
+            async with cl.Step(name=tool) as step:
+                step.input = tool_input
+                step.output = tool_input
+                step.root=True
+        
+        logging.info(f"Executing tool: {tool}, with inputs: {tool_input}")
 
-    prompt = hub.pull("hwchase17/openai-functions-agent")
-    agent = create_openai_functions_agent(llm, tools, prompt)
-
-
-    class AgentState(TypedDict):
-        # The input string
-        input: str
-        # The list of previous messages in the conversation
-        chat_history: list[BaseMessage]
-        # The outcome of a given call to the agent
-        # Needs `None` as a valid type, since this is what this will start as
-        agent_outcome: Union[AgentAction, AgentFinish, None]
-        # List of actions and corresponding observations
-        # Here we annotate this with `operator.add` to indicate that operations to
-        # this state should be ADDED to the existing values (not overwrite it)
-        intermediate_steps: Annotated[list[tuple[AgentAction, str]], operator.add]
+        output = await tool_executor.ainvoke(agent_action)
+        
+        if tool != "human":
+            step.output = output
+        
+        data["intermediate_steps"].append((agent_action, str(output)))
+        return data
 
 
-    # Define the function that determines whether to continue or not
-    def should_continue(state):
-        if isinstance(state["agent_outcome"], AgentFinish):
-            agent_outcome: AgentFinish = state["agent_outcome"]
-            cl.run_sync(cl.Message(content=agent_outcome.return_values.get("output")).send())
+    def should_continue(data):
+        if isinstance(data['agent_outcome'], AgentFinish):
             return "end"
         else:
             return "continue"
 
-
-    # Define the function that calls the model
-    async def call_model(state):
-        inputs = state.copy()
-        if len(inputs["intermediate_steps"]) > 5:
-            inputs["intermediate_steps"] = inputs["intermediate_steps"][-5:]
-        agent_outcome = await agent.ainvoke(inputs)
-        return {"agent_outcome": agent_outcome}
+    workflow = StateGraph(AgentState)
 
 
-    # Define the function to execute tools
-    async def call_tool(state):
-        agent_action = state["agent_outcome"]
-        output = await tool_executor.ainvoke(agent_action)
-        return {"intermediate_steps": [(agent_action, str(output))]}
+    workflow.add_node("agent", run_agent)
+    workflow.add_node("action", execute_tools)
 
-    # Initialize a new graph
-    graph = StateGraph(AgentState)
+    workflow.set_entry_point("agent")
 
-    # Define the two Nodes we will cycle between
-    graph.add_node("agent", call_model)
-    graph.add_node("action", call_tool)
-
-    # Set the Starting Edge
-    graph.set_entry_point("agent")
-
-    # Set our Contitional Edges
-    graph.add_conditional_edges(
+    workflow.add_conditional_edges(
         "agent",
         should_continue,
         {
@@ -658,11 +683,9 @@ async def start():
         },
     )
 
-    # Set the Normal Edges
-    graph.add_edge("action", "agent")
+    workflow.add_edge("action", "agent")
 
-    # Compile the workflow
-    app = graph.compile()
+    app = workflow.compile()
     
     cl.user_session.set("runner", app)
 
@@ -673,49 +696,38 @@ async def main(message: cl.Message):
     runner = cl.user_session.get("runner")  # type: CompiledGraph
     
     messages = await chat_history.chat_memory.aget_messages()
+    # print(messages)
     inputs = {
         "input": message.content,
-        "chat_history": messages
+        "chat_history": messages,
     }
     
     # Create placeholder for response message from AI
     msg = cl.Message(content="")
     
-    # answer_prefix_tokens=["Final Answer"]
+    answer_prefix_tokens=["Final Answer"]
     
     # Create a new instance of the RunnableConfig
     config = RunnableConfig(
-        run_name="Heimdal",
+        run_name="Heimdal with Tools and UI",
         recursion_limit=50,
         callbacks=[cl.AsyncLangchainCallbackHandler(
             stream_final_answer=True,
-            # answer_prefix_tokens=answer_prefix_tokens
+            answer_prefix_tokens=answer_prefix_tokens
         )]
     )
     
-    async for chunk in runner.with_config(config).astream(inputs):
-        for key, value in chunk.items():
-            print(f"Key: {key}, Value: {value}")
-            if key == "agent":
-                latest_message: AIMessage = value.get("messages", [])[-1] if value.get("messages") else None
-                if latest_message and latest_message.additional_kwargs.get("tool_calls"):
-                    for tool_call in latest_message.additional_kwargs["tool_calls"]:
-                        if tool_call.get("type") == "function":
-                            arguments = tool_call.get("function", {}).get("arguments", "")
-                            function_name = tool_call.get("function", {}).get("name", "")
-                            message_to_print = f"Running the {function_name} tool"
-                            if arguments and arguments != "{}":
-                                message_to_print += f" with the arguments {arguments}"
-                            else:
-                                message_to_print += " with no arguments"
-                            print(message_to_print)
-                            
-                if latest_message:
-                    await msg.stream_token(latest_message.content)
+    async for output in runner.with_config(config).astream(inputs):
+        # log_output = ", ".join([f"{key}: {value}" for key, value in output.items()])
+        # logger.info(f"Output received: {log_output}")
+        if "agent" in output:
+            agent = output["agent"]
+            if "agent_outcome" in agent:
+                agent_outcome = agent["agent_outcome"]
+                if isinstance(agent_outcome, AgentFinish):
+                    await msg.stream_token(agent_outcome.return_values["output"])
 
-            if key == "messages":
-                for message in value:
-                    await msg.stream_token(message["content"])
+
     
     chat_history.chat_memory.add_message(HumanMessage(content=message.content))
     chat_history.chat_memory.add_message(AIMessage(content=msg.content))

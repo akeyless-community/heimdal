@@ -185,7 +185,7 @@ async def generate_default_deploy_role_manifest(namespace: str, service_account_
     """
     resources = ["pods", "pods/log", "services", "deployments", "secrets"]
     verbs = ["get", "watch", "list", "create", "delete", "update", "patch"]
-    return generate_role_manifest(namespace, service_account_name, resources, verbs)
+    return await generate_role_manifest(namespace, service_account_name, resources, verbs)
 
 
 async def generate_role_manifest(namespace: str, service_account_name: str, resources: list, verbs: list) -> dict:
@@ -222,7 +222,7 @@ async def can_i_deploy_into_namespace(namespace: str) -> bool:
         "services": ["create", "get", "list", "watch", "update", "patch", "delete"],
         "deployments": ["create", "get", "list", "watch", "update", "patch", "delete"]
     }
-    return can_i(namespace, resource_attributes)
+    return await can_i(namespace, resource_attributes)
 
 
 
@@ -274,12 +274,12 @@ async def can_i(namespace: str, resource_attributes: dict) -> bool:
         if isinstance(value, list):
             for val in value:
                 data['spec']['resourceAttributes'][key] = val
-                response: bool = make_post_request(url, data, headers, ca_cert)
+                response: bool = await make_post_request(url, data, headers, ca_cert)
                 if not response:
                     return False
         else:
             data['spec']['resourceAttributes'][key] = value
-            response: bool = make_post_request(url, data, headers, ca_cert)
+            response: bool = await make_post_request(url, data, headers, ca_cert)
             if not response:
                 return False
                 
@@ -347,7 +347,7 @@ async def deploy_helm_chart_with_values(release_name: str, namespace: str, chart
     """
     Deploy a Helm chart into a Kubernetes cluster using Helm 3 with the specified values.
     """
-    return _deploy_helm_chart("gw",namespace,chart_url)
+    return await _deploy_helm_chart("gw",namespace,chart_url)
 
 
 async def _deploy_helm_chart(release_name, namespace, chart_url, chart_version, values_file=None) -> str:
