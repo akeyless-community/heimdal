@@ -1,4 +1,5 @@
 {
     "mirrord.promptMirrordForTeams": false,
-    "mirrord.promptUsingActiveConfig": false
+    "mirrord.promptUsingActiveConfig": false,
+    "mirrord.promptUsingDefaultConfig": false
 }

@@ -5,7 +5,7 @@ from typing import Annotated, Callable, Sequence
 from langchain_openai import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from typing import TypedDict, Annotated, List, Union
-from langchain_core.agents import AgentAction, AgentFinish
+from langchain_core.agents import AgentAction, AgentFinish, AgentActionMessageLog
 from langchain.schema.runnable.config import RunnableConfig
 from langchain_core.messages import BaseMessage
 from langchain.chains.llm_math.base import LLMMathChain
@@ -107,15 +107,21 @@ class HumanInputChainlit(BaseTool):
 
 
 @cl.action_callback("Approve the Scanning of the environment and install the Akeyless Gateway")
-async def on_action(action):
+async def on_action(action: cl.Action):
     # Add the DEPLOY_GATEWAY_COMMAND to the message history as if the user sent it
     message = cl.Message(
         content=DEPLOY_GATEWAY_COMMAND,
     )
+    task_list = cl.TaskList()
+    task_list.status = "Deploying..."
+    cl.user_session.set("task_list", task_list)
     await message.send()
-    await main(message)
     # Remove the action button from the chatbot user interface
     await action.remove()
+    await main(message)
+    await task_list.send()
+    
+    
 
 
 @cl.on_settings_update
@@ -529,23 +535,6 @@ async def start():
         args_schema=AkeylessAuthMethodValidation,
         return_direct=False,
     )
-    
-    class Response(BaseModel):
-        """Final answer to the user"""
-        namespace: str = Field(
-            description="Namespace in which the chart was deployed")
-        service_account: str = Field(
-            description="Service account used to deploy the chart")
-        detected_cloud_service_provider: str = Field(
-            description="Detected cloud service provider")
-        can_i_deploy: str = Field(
-            description="Can the bot deploy into the namespace?")
-        akeyless_access_id: str = Field(
-            description="Akeyless access id for auth method (akeyless_access_id)")
-        release_name: str = Field(description="Name of the release")
-        revision_namespace: str = Field(description="Namespace of the release")
-        revision: int = Field(description="Revision number")
-        status: str = Field(description="Status of the release")
 
 
     # Create the OpenAI LLM
@@ -612,12 +601,14 @@ async def start():
         # this state should be ADDED to the existing values (not overwrite it)
         intermediate_steps: Annotated[list[tuple[AgentAction, str]], operator.add]
 
-
     # Define the function that determines whether to continue or not
     def should_continue(state):
         if isinstance(state["agent_outcome"], AgentFinish):
             agent_outcome: AgentFinish = state["agent_outcome"]
             cl.run_sync(cl.Message(content=agent_outcome.return_values.get("output")).send())
+            task_list = cl.user_session.get("task_list")
+            task_list.status = "Complete"
+            cl.run_sync(task_list.send())
             return "end"
         else:
             return "continue"
@@ -634,9 +625,37 @@ async def start():
 
     # Define the function to execute tools
     async def call_tool(state):
-        agent_action = state["agent_outcome"]
-        output = await tool_executor.ainvoke(agent_action)
-        return {"intermediate_steps": [(agent_action, str(output))]}
+        agent_outcome = state["agent_outcome"]
+        task = None
+        task_list = cl.user_session.get("task_list")
+        if isinstance(agent_outcome, AgentActionMessageLog):
+            agent_action: AgentActionMessageLog = agent_outcome
+            if task_list is not None:
+                task = cl.Task(
+                    title=agent_action.tool,
+                    status=cl.TaskStatus.RUNNING
+                )
+                # Create a task and put it in the running state
+                await task_list.add_task(task)
+                
+                message_id = await cl.Message(content=f"Utilizing tool {task.title}").send()
+                task.forId = message_id
+                
+                # Update the task list in the interface
+                await task_list.send()
+                
+                # Wait for the UI to update
+                await cl.sleep(1)
+
+        output = await tool_executor.ainvoke(agent_outcome)
+        
+        if isinstance(agent_outcome, AgentAction):
+            agent_action: AgentAction = agent_outcome
+            if task_list is not None:
+                task.status = cl.TaskStatus.DONE
+                await task_list.send()
+        
+        return {"intermediate_steps": [(agent_outcome, str(output))]}
 
     # Initialize a new graph
     graph = StateGraph(AgentState)
@@ -681,16 +700,14 @@ async def main(message: cl.Message):
     # Create placeholder for response message from AI
     msg = cl.Message(content="")
     
-    # answer_prefix_tokens=["Final Answer"]
-    
     # Create a new instance of the RunnableConfig
     config = RunnableConfig(
-        run_name="Heimdal",
+        run_name="Heimdal Tools",
         recursion_limit=50,
-        callbacks=[cl.AsyncLangchainCallbackHandler(
-            stream_final_answer=True,
-            # answer_prefix_tokens=answer_prefix_tokens
-        )]
+        # callbacks=[cl.AsyncLangchainCallbackHandler(
+        #     stream_final_answer=True,
+        #     # answer_prefix_tokens=answer_prefix_tokens
+        # )]
     )
     
     async for chunk in runner.with_config(config).astream(inputs):

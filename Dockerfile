@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y \
 # Copy the dependencies file to the working directory
 COPY requirements.txt .
 
+# Expose the port for the chainlit app
+EXPOSE 8501
+
 # Install any dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
