@@ -1,42 +1,74 @@
-# Heimdal - Agentic AI-Powered Helm Chart Installer
+# Heimdal: AI-Powered Kubernetes Helm Chart Deployment
 
-Welcome to Heimdal, the cutting-edge AI-powered assistant designed to streamline the deployment of the Akeyless Gateway into Kubernetes clusters. Heimdal leverages advanced language models and a suite of tools to provide an intuitive and automated installation experience.
+Heimdal is an innovative open-source project that leverages the power of Large Language Models (LLMs) and the LangChain framework to automate Kubernetes Helm chart deployments. By integrating cutting-edge AI technologies with DevOps practices, Heimdal aims to demonstrate a path to revolutionize the way applications are deployed and managed in cloud-native environments.
 
 ## Features
 
-- **Environment Scanning**: Automatically detects the Kubernetes namespace and service account of the deployment.
-- **Cloud Service Provider Detection**: Identifies the cloud service provider and creates the appropriate Akeyless authentication method.
-- **Helm Chart Deployment**: Deploys the Akeyless Gateway Helm chart using the generated authentication method Access ID.
-- **Comprehensive Reporting**: Returns detailed information about the deployment, including namespace, service account, and cloud provider.
+- AI-driven conversational agent for intuitive deployment commands
+- Intelligent interpretation and execution of user intents
+- Seamless integration with Kubernetes and Helm
+- Automated verification of permissions and cloud service provider detection
+- Secure management of Kubernetes secrets
+- User-friendly interface powered by Chainlit and LangGraph
+- Modular architecture for easy customization and extensibility
 
 ## Getting Started
 
-To use Heimdal, you will need:
+### Prerequisites
 
-- An Akeyless Token from the Akeyless web console.
-- Permissions for Heimdal to deploy the Helm chart into the Kubernetes namespace.
+- Kubernetes cluster
+- Helm package manager
+- Python 3.7+
+- Required environment variables (see `.env.example`)
+
+### Installation
+
+1. Clone the repository:
+```sh
+git clone https://github.com/akeyless-community/heimdal.git
+```
+
+2. Install the required dependencies:
+```sh
+pip install -r requirements.txt
+```
+
+3. Create a `.env` file based on the provided `.env.example` and set the required environment variables.
+
+4. Deploy Heimdal using Kustomize:
+
+```sh
+kubectl apply -k .
+```
+
+5. Access the Heimdal UI by navigating to the provided URL.
 
 ## Usage
 
-1. **Set Akeyless Token**: Enter your Akeyless Token in the Streamlit app sidebar.
-2. **Approve Installation**: Click the button in the Streamlit app to start the installation process.
-3. **Monitor Progress**: Follow the on-screen instructions and monitor the deployment process.
-4. **Review Details**: After deployment, review the details of the installation provided by Heimdal.
+Heimdal provides a conversational interface for deploying the Akeyless Gateway Helm chart on Kubernetes. Simply interact with the AI agent through the Chainlit-powered UI, providing natural language commands and responding to prompts as needed. Heimdal will intelligently interpret your intents, verify permissions, detect the cloud service provider, and execute the necessary deployment steps.
 
-## Development
+## Contributing
 
-Heimdal is built using Python and integrates with Langchain and OpenAI's language models. The project structure includes:
+We welcome contributions from the community! If you'd like to contribute to Heimdal, please follow these steps:
 
-- `app.py`: The main application script with the AI logic and tool integrations.
-- `streamlit_app.py`: The Streamlit interface for user interaction.
-- `requirements.txt`: The list of Python package dependencies.
+1. Fork the repository.
+2. Create a new branch for your feature or bug fix.
+3. Make your changes and commit them with descriptive messages.
+4. Push your changes to your forked repository.
+5. Submit a pull request to the main repository.
 
-To contribute to the project, clone the repository, create a virtual environment, install dependencies, and start adding your features or improvements.
-
-## Support
-
-For support, please open an issue in the project's GitHub repository or reach out to the maintainers.
+Please ensure that your code adheres to the project's coding conventions and includes appropriate tests.
 
 ## License
 
-Heimdal is open-source software licensed under the Apache License 2.0.
+Heimdal is released under the [Apache License 2.0](LICENSE).
+
+## Contact
+
+If you have any questions, suggestions, or feedback, please feel free to reach out to us at [email address].
+
+---
+
+We hope that this README provides a comprehensive overview of your Heimdal project, its features, and how to get started with it. The README also encourages community contributions and provides information about the project's license.
+
+Feel free to customize and expand upon this README based on your specific project details and requirements.
