@@ -383,35 +383,6 @@ async def _deploy_helm_chart(release_name, namespace, chart_url, chart_version, 
         print(f"Failed to install chart {release_name}.\nError: {e.stderr}")
         raise
 
-async def deploy_gateway_helm_chart(auth_method_id: str, namespace: str) -> str:
-    """
-    This function adds the Akeyless Helm repository, updates it, and installs the Akeyless API Gateway chart.
-    It sets the Akeyless user authentication admin access ID using the provided auth_method_id.
-
-    Args:
-        auth_method_id (str): The Akeyless user authentication admin access ID.
-        namespace (str): The Kubernetes namespace where the chart will be installed.
-    """
-    # Set the release name for the Helm chart
-    release_name = "gw"
-    
-    # Construct the Helm command
-    cmd = [
-        '/usr/local/bin/helm', 'repo', 'add', 'akeyless', 'https://akeylesslabs.github.io/helm-charts',
-        '&&', 'helm', 'repo', 'update', 'akeyless',
-        '&&', 'helm', 'install', release_name, 'akeyless/akeyless-api-gateway', '--set', f'"akeylessUserAuth.adminAccessId={auth_method_id}"', '--namespace', namespace
-    ]
-    
-    # Run the command in a subprocess
-    try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True, shell=True)
-        print("Akeyless Helm repository added and updated successfully.")
-        print(f"Chart {release_name} installed successfully.\n{result.stdout}")
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        print(f"Failed to add or update Akeyless Helm repository.\nError: {e.stderr}")
-        raise
-
 
 
 async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, release_name: str = "gw", isGKE_workload_identity: bool = True) -> str:
@@ -441,7 +412,11 @@ async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, r
     )
     
     # Prepare custom values for the Helm chart deployment
-    values = {"akeylessUserAuth": {"adminAccessId": admin_access_id}}
+    values = {
+                "akeylessUserAuth": {"adminAccessId": admin_access_id},
+                "livenessProbe": {"initialDelaySeconds": 30},
+                "readinessProbe": {"initialDelaySeconds": 30}
+            }
 
     # Configure node selector for GKE workload identity if enabled
     if isGKE_workload_identity:
