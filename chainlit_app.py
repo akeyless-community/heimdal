@@ -106,7 +106,7 @@ class HumanInputChainlit(BaseTool):
             return "Error: Failed to get human input."
 
 
-@cl.action_callback("Approve the Scanning of the environment and install the Akeyless Gateway")
+@cl.action_callback("Deploy Gateway")
 async def on_action(action: cl.Action):
     # Add the DEPLOY_GATEWAY_COMMAND to the message history as if the user sent it
     message = cl.Message(
@@ -120,8 +120,6 @@ async def on_action(action: cl.Action):
     await action.remove()
     await main(message)
     await task_list.send()
-    
-    
 
 
 @cl.on_settings_update
@@ -174,8 +172,8 @@ async def setup_agent(settings):
             # Create an action button to scan the environment and deploy the Akeyless Gateway
             actions = [
                 cl.Action(
-                    name="Approve the Scanning of the environment and install the Akeyless Gateway",
-                    description="Approve the Scanning of the environment and install the Akeyless Gateway", 
+                    name="Deploy Gateway",
+                    description="Approve the Scanning of the environment and deploy the Akeyless Gateway",
                     value=akeyless_token)
             ]
             
@@ -582,7 +580,6 @@ async def start():
 
     # Create the tools to bind to the model
     tools = [convert_to_openai_function(t) for t in tools]
-    # tools.append(convert_to_openai_function(Response))
 
     prompt = hub.pull("hwchase17/openai-functions-agent")
     agent = create_openai_functions_agent(llm, tools, prompt)
@@ -630,21 +627,24 @@ async def start():
         task_list = cl.user_session.get("task_list")
         if isinstance(agent_outcome, AgentActionMessageLog):
             agent_action: AgentActionMessageLog = agent_outcome
+            tool_name = agent_action.tool.replace("_", " ").title()
             if task_list is not None:
-                task = cl.Task(
-                    title=agent_action.tool,
-                    status=cl.TaskStatus.RUNNING
-                )
-                # Create a task and put it in the running state
+                task = cl.Task(title=tool_name, status=cl.TaskStatus.RUNNING)
                 await task_list.add_task(task)
                 
-                message_id = await cl.Message(content=f"Utilizing tool {task.title}").send()
+                message_content = f"Utilizing tool `{tool_name}`"
+                message_elements = []
+                if agent_action.tool_input:
+                    message_content += " with these inputs:"
+                    message_elements.append(cl.Text(
+                        content=str(agent_action.tool_input),
+                        display='inline',
+                        language='json'
+                    ))
+                
+                message_id = await cl.Message(content=message_content, elements=message_elements).send()
                 task.forId = message_id
-                
-                # Update the task list in the interface
                 await task_list.send()
-                
-                # Wait for the UI to update
                 await cl.sleep(1)
 
         output = await tool_executor.ainvoke(agent_outcome)
