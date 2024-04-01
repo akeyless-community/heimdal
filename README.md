@@ -62,13 +62,3 @@ Please ensure that your code adheres to the project's coding conventions and inc
 ## License
 
 Heimdal is released under the [Apache License 2.0](LICENSE).
-
-## Contact
-
-If you have any questions, suggestions, or feedback, please feel free to reach out to us at [email address].
-
----
-
-We hope that this README provides a comprehensive overview of your Heimdal project, its features, and how to get started with it. The README also encourages community contributions and provides information about the project's license.
-
-Feel free to customize and expand upon this README based on your specific project details and requirements.
