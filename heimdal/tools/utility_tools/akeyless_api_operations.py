@@ -1,5 +1,4 @@
-import base64, json, os, pprint, akeyless, xml.etree.ElementTree as ET, logging, requests
-from langchain.tools import tool
+import base64, json, os, akeyless, xml.etree.ElementTree as ET, logging, requests
 from typing import List, Tuple, Union
 import akeyless
 from akeyless.rest import ApiException

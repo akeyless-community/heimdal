@@ -1,6 +1,5 @@
 import datetime
 from langchain import hub
-from langchain_core.tools import tool
 from typing import Annotated, Callable, Sequence
 from langchain_openai import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
@@ -15,13 +14,10 @@ import chainlit as cl
 from chainlit.playground.config import add_llm_provider
 from chainlit.playground.providers.langchain import LangchainGenericProvider
 from langchain_core.utils.function_calling import convert_to_openai_function
-from langchain_core.runnables import RunnablePassthrough
 from chainlit.input_widget import TextInput
 from langchain_core.agents import AgentFinish
 from langgraph.prebuilt.tool_executor import ToolExecutor
-from langchain.agents import create_json_chat_agent, Tool
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, PromptTemplate, MessagesPlaceholder, HumanMessagePromptTemplate
-from langchain.agents.agent import AgentExecutor
+from langchain.agents import Tool
 from langchain.agents import create_openai_functions_agent
 from akeyless.models import ValidateTokenOutput
 import json
@@ -627,7 +623,7 @@ async def start():
         task_list = cl.user_session.get("task_list")
         if isinstance(agent_outcome, AgentActionMessageLog):
             agent_action: AgentActionMessageLog = agent_outcome
-            tool_name = agent_action.tool.replace("_", " ").title()
+            tool_name = agent_action.tool.replace("_", " ")
             if task_list is not None:
                 task = cl.Task(title=tool_name, status=cl.TaskStatus.RUNNING)
                 await task_list.add_task(task)
@@ -704,10 +700,6 @@ async def main(message: cl.Message):
     config = RunnableConfig(
         run_name="Heimdal Tools",
         recursion_limit=50,
-        # callbacks=[cl.AsyncLangchainCallbackHandler(
-        #     stream_final_answer=True,
-        #     # answer_prefix_tokens=answer_prefix_tokens
-        # )]
     )
     
     async for chunk in runner.with_config(config).astream(inputs):

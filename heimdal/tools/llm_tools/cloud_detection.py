@@ -1,8 +1,7 @@
 import requests
 import concurrent.futures
 from typing import Optional
-# Import things that are needed generically
-from langchain.tools import tool
+
 
 def check_aws() -> Optional[str]:
     """

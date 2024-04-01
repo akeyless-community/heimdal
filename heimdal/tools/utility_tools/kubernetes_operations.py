@@ -1,12 +1,13 @@
 import base64, json, logging, requests, subprocess, yaml, tempfile, os
-from langchain_core.tools import ToolException, StructuredTool
-from langchain.tools import tool
+from langchain_core.tools import ToolException
 from typing import List, Tuple, Union
 from pyhelm3 import Client
 from kubernetes import client, config, config as k8s_config
 
 # Create a logger object
 logger = logging.getLogger(__name__)
+
+DEFAULT_K8S_PROBE_WAIT_TIME_SECONDS = 10
 
 
 async def generate_k8s_secret_from_literal_values(secret_name: str, namespace: str, literal_values: dict) -> None:
@@ -414,8 +415,8 @@ async def deploy_akeyless_gateway(target_namespace: str, admin_access_id: str, r
     # Prepare custom values for the Helm chart deployment
     values = {
                 "akeylessUserAuth": {"adminAccessId": admin_access_id},
-                "livenessProbe": {"initialDelaySeconds": 30},
-                "readinessProbe": {"initialDelaySeconds": 30}
+                "livenessProbe": {"initialDelaySeconds": DEFAULT_K8S_PROBE_WAIT_TIME_SECONDS},
+                "readinessProbe": {"initialDelaySeconds": DEFAULT_K8S_PROBE_WAIT_TIME_SECONDS}
             }
 
     # Configure node selector for GKE workload identity if enabled
