@@ -1,43 +1,29 @@
 import datetime
-from langchain import hub
-from typing import Annotated, Callable, Sequence
+from typing import Annotated, Callable
 from langchain_openai import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from typing import TypedDict, Annotated, List, Union
-from langchain_core.agents import AgentAction, AgentFinish, AgentActionMessageLog
-from langchain.schema.runnable.config import RunnableConfig
+from typing import TypedDict, List
+from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import BaseMessage
-from langchain.chains.llm_math.base import LLMMathChain
-from langchain.tools import StructuredTool
-import operator
+from langchain_core.tools import StructuredTool
 import chainlit as cl
-from chainlit.playground.config import add_llm_provider
-from chainlit.playground.providers.langchain import LangchainGenericProvider
-from langchain_core.utils.function_calling import convert_to_openai_function
 from chainlit.input_widget import TextInput
-from langchain_core.agents import AgentFinish
-from langgraph.prebuilt.tool_executor import ToolExecutor
-from langchain.agents import Tool
-from langchain.agents import create_openai_functions_agent
 from akeyless.models import ValidateTokenOutput
 import json
 from langchain_core.tools import BaseTool
 import os
-from typing import List, Union
+import math
+import numexpr
 from langgraph.graph import END, StateGraph
-from langgraph.graph.graph import CompiledGraph
-from langgraph.prebuilt import ToolInvocation
+from langgraph.graph.message import add_messages
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
-    ChatMessage,
     SystemMessage,
-    FunctionMessage,
     ToolMessage,
 )
 import logging
 from dotenv import load_dotenv
-from langchain.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from heimdal.tools.llm_tools.cloud_detection import detect_cloud_provider
 
 from heimdal.tools.utility_tools.akeyless_api_operations import check_if_akeyless_auth_method_exists_from_list_auth_methods, create_akeyless_api_key_auth_method, create_aws_cloud_auth_method, create_azure_cloud_auth_method, create_gcp_cloud_auth_method, validate_akeyless_token
@@ -68,8 +54,8 @@ Once the helm chart is deployed, return all the details about everything created
 class HumanInputChainlit(BaseTool):
     """Tool that adds the capability to ask user for input."""
 
-    name = "human"
-    description = (
+    name: str = "human"
+    description: str = (
         "You can ask a human user for guidance or information when you think you "
         "got stuck or you are not sure what to do next. "
         "The input should be a question for the human user."
@@ -169,8 +155,9 @@ async def setup_agent(settings):
             actions = [
                 cl.Action(
                     name="Deploy Gateway",
-                    description="Approve the Scanning of the environment and deploy the Akeyless Gateway",
-                    value=akeyless_token)
+                    label="Deploy Gateway",
+                    tooltip="Approve the Scanning of the environment and deploy the Akeyless Gateway",
+                    payload={})
             ]
             
             await cl.Message(content=f"A valid Akeyless Token was set successfully!\n\nThe token will expire in {hours} hours and {minutes} minutes or at {expiration_date_str}.\n\nWould you like to approve the scanning of the environment and install the Akeyless Gateway?\n", actions=actions).send()
@@ -194,9 +181,7 @@ async def start():
         ]
     ).send()
     
-    # Create a new instance of the chat memory
-    chat_history = ConversationBufferMemory(return_messages=True)
-    cl.user_session.set("chat_history", chat_history)
+    cl.user_session.set("chat_history", [])
     
     # Tools Go here
     
@@ -533,17 +518,31 @@ async def start():
 
     # Create the OpenAI LLM
     llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, streaming=True)
-    
-    llm_math_chain = LLMMathChain.from_llm(llm=llm, verbose=True)
-    
+
+    class CalculatorInput(BaseModel):
+        expression: str = Field(description="A single-line numerical expression, e.g. '37593 * 67' or '37593**(1/5)'")
+
+    def calculator_tool(expression: str) -> str:
+        """
+        Evaluate a numerical expression with numexpr; no Python code is executed.
+        """
+        return str(numexpr.evaluate(
+            expression.strip(),
+            global_dict={},
+            local_dict={"pi": math.pi, "e": math.e},
+        ))
+
+    calculator = StructuredTool.from_function(
+        func=calculator_tool,
+        name="Calculator",
+        description="useful for when you need to perform math calculations",
+        args_schema=CalculatorInput,
+        return_direct=False,
+    )
+
     tools = [
         HumanInputChainlit(),
-        Tool(
-            name="Calculator",
-            func=llm_math_chain.run,
-            description="useful for when you need to perform math calculations",
-            coroutine=llm_math_chain.arun,
-        ),
+        calculator,
         get_pod_namespace_and_service_account,
         can_i_deploy_into_namespace_checker,
         cloud_service_detector,
@@ -558,100 +557,75 @@ async def start():
         check_if_akeyless_auth_method_exists,
     ]
 
-    tool_executor = ToolExecutor(tools)
+    tools_by_name = {t.name: t for t in tools}
 
-    # Add the LLM provider
-    add_llm_provider(
-        LangchainGenericProvider(
-            # It is important that the id of the provider matches the _llm_type
-            id=llm._llm_type,
-            # The name is not important. It will be displayed in the UI.
-            name="GPT 3.5 Turbo",
-            # This should always be a Langchain llm instance (correctly configured)
-            llm=llm,
-            # If the LLM works with messages, set this to True
-            is_chat=True,
-        )
-    )
+    # Bind the tools to the model
+    llm_with_tools = llm.bind_tools(tools)
 
-    # Create the tools to bind to the model
-    tools = [convert_to_openai_function(t) for t in tools]
-
-    prompt = hub.pull("hwchase17/openai-functions-agent")
-    agent = create_openai_functions_agent(llm, tools, prompt)
+    system_message = SystemMessage(content="You are a helpful assistant")
 
 
     class AgentState(TypedDict):
-        # The input string
-        input: str
-        # The list of previous messages in the conversation
-        chat_history: list[BaseMessage]
-        # The outcome of a given call to the agent
-        # Needs `None` as a valid type, since this is what this will start as
-        agent_outcome: Union[AgentAction, AgentFinish, None]
-        # List of actions and corresponding observations
-        # Here we annotate this with `operator.add` to indicate that operations to
-        # this state should be ADDED to the existing values (not overwrite it)
-        intermediate_steps: Annotated[list[tuple[AgentAction, str]], operator.add]
+        # The conversation so far, including tool calls and their results.
+        # `add_messages` appends new messages instead of overwriting the list.
+        messages: Annotated[List[BaseMessage], add_messages]
 
     # Define the function that determines whether to continue or not
     def should_continue(state):
-        if isinstance(state["agent_outcome"], AgentFinish):
-            agent_outcome: AgentFinish = state["agent_outcome"]
-            cl.run_sync(cl.Message(content=agent_outcome.return_values.get("output")).send())
-            task_list = cl.user_session.get("task_list")
-            task_list.status = "Complete"
-            cl.run_sync(task_list.send())
-            return "end"
-        else:
+        last_message = state["messages"][-1]
+        if isinstance(last_message, AIMessage) and last_message.tool_calls:
             return "continue"
+        return "end"
 
 
     # Define the function that calls the model
     async def call_model(state):
-        inputs = state.copy()
-        if len(inputs["intermediate_steps"]) > 5:
-            inputs["intermediate_steps"] = inputs["intermediate_steps"][-5:]
-        agent_outcome = await agent.ainvoke(inputs)
-        return {"agent_outcome": agent_outcome}
+        response = await llm_with_tools.ainvoke([system_message] + state["messages"])
+        return {"messages": [response]}
 
 
     # Define the function to execute tools
     async def call_tool(state):
-        agent_outcome = state["agent_outcome"]
-        task = None
         task_list = cl.user_session.get("task_list")
-        if isinstance(agent_outcome, AgentActionMessageLog):
-            agent_action: AgentActionMessageLog = agent_outcome
-            tool_name = agent_action.tool.replace("_", " ")
+        tool_messages = []
+        for tool_call in state["messages"][-1].tool_calls:
+            task = None
+            tool_name = tool_call["name"].replace("_", " ")
             if task_list is not None:
                 task = cl.Task(title=tool_name, status=cl.TaskStatus.RUNNING)
                 await task_list.add_task(task)
-                
+
                 message_content = f"Utilizing tool `{tool_name}`"
                 message_elements = []
-                if agent_action.tool_input:
+                if tool_call["args"]:
                     message_content += " with these inputs:"
                     message_elements.append(cl.Text(
-                        content=str(agent_action.tool_input),
+                        content=str(tool_call["args"]),
                         display='inline',
                         language='json'
                     ))
-                
-                message_id = await cl.Message(content=message_content, elements=message_elements).send()
-                task.forId = message_id
+
+                sent_message = await cl.Message(content=message_content, elements=message_elements).send()
+                task.forId = sent_message.id
                 await task_list.send()
                 await cl.sleep(1)
 
-        output = await tool_executor.ainvoke(agent_outcome)
-        
-        if isinstance(agent_outcome, AgentAction):
-            agent_action: AgentAction = agent_outcome
-            if task_list is not None:
+            tool = tools_by_name.get(tool_call["name"])
+            if tool is None:
+                output = json.dumps({"error": f"Unknown tool: {tool_call['name']}"})
+            else:
+                try:
+                    output = await tool.ainvoke(tool_call["args"])
+                except Exception as e:
+                    logger.error(f"Tool {tool_call['name']} failed: {e}")
+                    output = json.dumps({"error": str(e)})
+            tool_messages.append(ToolMessage(content=str(output), tool_call_id=tool_call["id"]))
+
+            if task is not None:
                 task.status = cl.TaskStatus.DONE
                 await task_list.send()
-        
-        return {"intermediate_steps": [(agent_outcome, str(output))]}
+
+        return {"messages": tool_messages}
 
     # Initialize a new graph
     graph = StateGraph(AgentState)
@@ -678,55 +652,49 @@ async def start():
 
     # Compile the workflow
     app = graph.compile()
-    
+
     cl.user_session.set("runner", app)
 
 
 @cl.on_message
 async def main(message: cl.Message):
-    chat_history = cl.user_session.get("chat_history")  # type: ConversationBufferMemory
-    runner = cl.user_session.get("runner")  # type: CompiledGraph
-    
-    messages = await chat_history.chat_memory.aget_messages()
-    inputs = {
-        "input": message.content,
-        "chat_history": messages
-    }
-    
+    chat_history: List[BaseMessage] = cl.user_session.get("chat_history")
+    runner = cl.user_session.get("runner")
+
+    inputs = {"messages": chat_history + [HumanMessage(content=message.content)]}
+
     # Create placeholder for response message from AI
     msg = cl.Message(content="")
-    
+
     # Create a new instance of the RunnableConfig
     config = RunnableConfig(
         run_name="Heimdal Tools",
         recursion_limit=50,
     )
-    
-    async for chunk in runner.with_config(config).astream(inputs):
-        for key, value in chunk.items():
-            print(f"Key: {key}, Value: {value}")
-            if key == "agent":
-                latest_message: AIMessage = value.get("messages", [])[-1] if value.get("messages") else None
-                if latest_message and latest_message.additional_kwargs.get("tool_calls"):
-                    for tool_call in latest_message.additional_kwargs["tool_calls"]:
-                        if tool_call.get("type") == "function":
-                            arguments = tool_call.get("function", {}).get("arguments", "")
-                            function_name = tool_call.get("function", {}).get("name", "")
-                            message_to_print = f"Running the {function_name} tool"
-                            if arguments and arguments != "{}":
-                                message_to_print += f" with the arguments {arguments}"
-                            else:
-                                message_to_print += " with no arguments"
-                            print(message_to_print)
-                            
-                if latest_message:
-                    await msg.stream_token(latest_message.content)
 
-            if key == "messages":
-                for message in value:
-                    await msg.stream_token(message["content"])
-    
-    chat_history.chat_memory.add_message(HumanMessage(content=message.content))
-    chat_history.chat_memory.add_message(AIMessage(content=msg.content))
+    async for chunk in runner.with_config(config).astream(inputs, stream_mode="updates"):
+        for key, value in chunk.items():
+            if key != "agent":
+                continue
+            latest_message: AIMessage = value["messages"][-1]
+            for tool_call in latest_message.tool_calls:
+                arguments = json.dumps(tool_call["args"]) if tool_call["args"] else ""
+                message_to_print = f"Running the {tool_call['name']} tool"
+                if arguments:
+                    message_to_print += f" with the arguments {arguments}"
+                else:
+                    message_to_print += " with no arguments"
+                logger.info(message_to_print)
+
+            if not latest_message.tool_calls and latest_message.content:
+                await msg.stream_token(latest_message.content)
+
+    task_list = cl.user_session.get("task_list")
+    if task_list is not None:
+        task_list.status = "Complete"
+        await task_list.send()
+
+    chat_history.append(HumanMessage(content=message.content))
+    chat_history.append(AIMessage(content=msg.content))
     cl.user_session.set("chat_history", chat_history)
     await msg.send()
