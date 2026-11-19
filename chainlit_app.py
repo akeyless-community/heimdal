@@ -678,13 +678,8 @@ async def main(message: cl.Message):
                 continue
             latest_message: AIMessage = value["messages"][-1]
             for tool_call in latest_message.tool_calls:
-                arguments = json.dumps(tool_call["args"]) if tool_call["args"] else ""
-                message_to_print = f"Running the {tool_call['name']} tool"
-                if arguments:
-                    message_to_print += f" with the arguments {arguments}"
-                else:
-                    message_to_print += " with no arguments"
-                logger.info(message_to_print)
+                # Arguments are not logged: some tools receive the Akeyless token
+                logger.info(f"Running the {tool_call['name']} tool")
 
             if not latest_message.tool_calls and latest_message.content:
                 await msg.stream_token(latest_message.content)
